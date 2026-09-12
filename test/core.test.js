@@ -93,6 +93,24 @@ test('MC 输出轮询先建立基线，只转发后来完整的新聊天', async
   assert.deepEqual(delivered, [{ player: 'Bob', content: 'new' }]);
 });
 
+test('MC → QQ 只在开关开启且机器人就绪时推送到允许群', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123,GROUP_OPENID_456', mcToQqEnabled: true };
+    const sent = [];
+    const bridge = new Bridge(store);
+    bridge.bot = { sendText: async (target, content) => sent.push({ target, content }) };
+    bridge.status = '已连接';
+    await bridge.sendMcChatToQq({ player: 'Alice', content: '你好' });
+    assert.deepEqual(sent.map(item => item.target.targetId), ['GROUP_OPENID_123', 'GROUP_OPENID_456']);
+    assert.equal(sent[0].content, '[服务器] Alice: 你好');
+    bridge.stopped = true;
+    await bridge.sendMcChatToQq({ player: 'Alice', content: '不发送' });
+    assert.equal(sent.length, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('配置密钥加密保存且读取时不回传', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
