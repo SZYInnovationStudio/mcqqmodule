@@ -32,7 +32,7 @@ test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行',
     store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const calls = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '已执行'; }, send: async () => {} });
-    const reply = bridge.beginRegistration('USER_OPENID_123', 'GROUP_OPENID_123', '/register 36000000');
+    const reply = bridge.beginRegistration('USER_OPENID_123', 'GROUP_OPENID_123', '/qqbind 36000000');
     const code = reply.match(/BIND-[A-F0-9]{6}/)[0];
     assert.match(bridge.confirmRegistration('OTHER_OPENID_123', 'GROUP_OPENID_123', code), /无效/);
     assert.match(bridge.confirmRegistration('USER_OPENID_123', 'OTHER_GROUP_123', code), /无效/);
@@ -40,9 +40,9 @@ test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行',
     assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
     assert.equal(store.state.bindings.USER_OPENID_123, undefined);
     assert.deepEqual(calls, []);
-    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/bind implayer'), /绑定命令/);
+    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind implayer'), /绑定命令/);
     assert.deepEqual(calls, ['aqqbot whitelist bind 36000000 implayer']);
-    assert.equal(store.state.bindings.USER_OPENID_123.status, '已发送，待服务器确认');
+    assert.equal(store.getBindings('USER_OPENID_123')[0].status, '已发送，待服务器确认');
     assert.match(bridge.confirmRegistration('USER_OPENID_123', 'GROUP_OPENID_123', code), /无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -57,11 +57,11 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
     await bridge.handleEvent({ ...event, messageId: '1', content: '/motd' });
     assert.equal(store.state.users.USER_OPENID_123, undefined);
-    assert.match(replies[0], /\/register/);
+    assert.match(replies[0], /\/qqbind/);
     bridge.lastCommand.delete('USER_OPENID_123');
-    await bridge.handleEvent({ ...event, messageId: '2', content: '/register 36000000' });
+    await bridge.handleEvent({ ...event, messageId: '2', content: '/qqbind 36000000' });
     const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, messageId: '3', content: `/confirm ${code}` });
+    await bridge.handleEvent({ ...event, messageId: '3', content: code });
     assert.ok(store.state.users.USER_OPENID_123);
     assert.equal(store.state.bindings.USER_OPENID_123, undefined);
     bridge.lastCommand.delete('USER_OPENID_123');
@@ -70,7 +70,7 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('首次 /bind 先要求登记，确认之后才调用 RCON', async () => {
+test('首次 /mcbind 先要求登记，确认之后才调用 RCON', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
@@ -79,16 +79,16 @@ test('首次 /bind 先要求登记，确认之后才调用 RCON', async () => {
     const commands = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return 'ok'; }, send: async (_event, text) => replies.push(text) });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
-    await bridge.handleEvent({ ...event, messageId: '11', content: '/bind implayer' });
+    await bridge.handleEvent({ ...event, messageId: '11', content: '/mcbind implayer' });
     assert.deepEqual(commands, []);
     assert.equal(store.state.bindings.USER_OPENID_123, undefined);
     bridge.lastCommand.delete('USER_OPENID_123');
-    await bridge.handleEvent({ ...event, messageId: '12', content: '/register 36000000' });
+    await bridge.handleEvent({ ...event, messageId: '12', content: '/qqbind 36000000' });
     const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, messageId: '13', content: `/confirm ${code}` });
+    await bridge.handleEvent({ ...event, messageId: '13', content: code });
     assert.deepEqual(commands, []);
     bridge.lastCommand.delete('USER_OPENID_123');
-    await bridge.handleEvent({ ...event, messageId: '14', content: '/bind implayer' });
+    await bridge.handleEvent({ ...event, messageId: '14', content: '/mcbind implayer' });
     assert.deepEqual(commands, ['aqqbot whitelist bind 36000000 implayer']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -102,9 +102,67 @@ test('同一 QQ 不可被其他 OpenID 冒用，管理员可修改和删除本�
     store.recordBinding('USER_OPENID_123', 'implayer', '已发送');
     store.updateUser('USER_OPENID_123', '36000001', 'newplayer');
     assert.equal(store.listUsers()[0].qq, '36000001');
-    assert.match(store.listUsers()[0].binding.status, /需核对服务器/);
+    assert.match(store.listUsers()[0].bindings[0].status, /需核对服务器/);
     store.deleteUser('USER_OPENID_123');
     assert.deepEqual(store.listUsers(), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('一个 QQ 可绑定多个玩家，解绑仅移除指定玩家，最后才能解除 QQ 登记', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    const calls = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return command.includes('unbind') ? '成功解绑' : '成功绑定'; }, send: async () => {} });
+    await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind player_one');
+    await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind player_two');
+    assert.deepEqual(store.getBindings('USER_OPENID_123').map(item => item.player), ['player_one', 'player_two']);
+    assert.throws(() => store.unregister('USER_OPENID_123'), /先用 \/mcunbind/);
+    assert.match(await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind player_one'), /已从当前 QQ 号解绑/);
+    assert.deepEqual(store.getBindings('USER_OPENID_123').map(item => item.player), ['player_two']);
+    assert.deepEqual(calls, ['aqqbot whitelist bind 36000000 player_one', 'aqqbot whitelist bind 36000000 player_two', 'aqqbot whitelist unbind name player_one']);
+    assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
+    await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind player_two');
+    assert.match(bridge.unbindQq('USER_OPENID_123', '/qqunbind'), /已解除登记/);
+    assert.equal(store.state.users.USER_OPENID_123, undefined);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('RCON 未确认解绑时保留本地记录；其他 QQ 不能占用相同玩家', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    store.register('OTHER_OPENID_123', '36000001', 'GROUP_OPENID_123');
+    store.recordBinding('USER_OPENID_123', 'implayer', '已发送');
+    assert.throws(() => store.recordBinding('OTHER_OPENID_123', 'ImPlayer', '已发送'), /已绑定其他 QQ/);
+    const bridge = new Bridge(store, { rcon: async () => '', send: async () => {} });
+    assert.match(await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind implayer'), /未明确确认/);
+    assert.equal(store.getBindings('USER_OPENID_123').length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123' };
+    const replies = [];
+    const calls = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '成功'; }, motd: async () => { calls.push('motd'); return {}; }, send: async (_event, reply) => replies.push(reply) });
+    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
+    for (const command of ['/qqunbind', '/mcbind implayer', '/mcunbind implayer', '/motd']) {
+      bridge.lastCommand.clear();
+      await bridge.handleEvent({ ...event, messageId: command, content: command });
+      assert.match(replies.at(-1), /\/qqbind/);
+    }
+    assert.deepEqual(calls, []);
+    bridge.lastCommand.clear();
+    await bridge.handleEvent({ ...event, messageId: 'legacy', content: '/register 36000000' });
+    assert.equal(replies.length, 4);
+    await bridge.handleEvent({ ...event, messageId: 'qqbind', content: '/qqbind 36000000' });
+    assert.match(replies.at(-1), /BIND-[A-F0-9]{6}/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -78,8 +78,8 @@ export class Bridge {
     if (!allowed.includes(group) || !openid || !event.replyTarget) return;
     const message = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
-    const submittedCode = isCode ? message.toUpperCase() : message.match(/^\/confirm\s+(BIND-[A-F0-9]{6})\s*$/i)?.[1].toUpperCase();
-    if (!/^\/(?:register|confirm|bind|motd)(?:\s|$)/i.test(message) && !isCode) return;
+    const submittedCode = isCode ? message.toUpperCase() : null;
+    if (!/^\/(?:qqbind|qqunbind|mcbind|mcunbind|motd)(?:\s|$)/i.test(message) && !isCode) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
       if (this.seen.has(key)) return;
@@ -92,16 +92,18 @@ export class Bridge {
     this.lastCommand.set(openid, now);
     try {
       let reply;
-      if (/^\/register(?:\s|$)/i.test(message)) reply = this.beginRegistration(openid, group, message);
-      else if (isCode || /^\/confirm(?:\s|$)/i.test(message)) reply = this.confirmRegistration(openid, group, submittedCode ?? '');
+      if (/^\/qqbind(?:\s|$)/i.test(message)) reply = this.beginRegistration(openid, group, message);
+      else if (isCode) reply = this.confirmRegistration(openid, group, submittedCode);
       else {
         const user = this.store.state.users[openid];
-        if (!user?.qq) reply = '使用前请先登记：/register <你的QQ号>。机器人会回显号码，请核对后由本人发送确认码。';
-        else if (/^\/bind(?:\s|$)/i.test(message)) reply = await this.bindPlayer(openid, group, message);
+        if (!user?.qq) reply = '请先登记 QQ 号：/qqbind <你的QQ号>。按提示二次确认后，重新发送刚才的命令。';
+        else if (/^\/qqunbind(?:\s|$)/i.test(message)) reply = this.unbindQq(openid, message);
+        else if (/^\/mcbind(?:\s|$)/i.test(message)) reply = await this.bindPlayer(openid, group, message);
+        else if (/^\/mcunbind(?:\s|$)/i.test(message)) reply = await this.unbindPlayer(openid, group, message);
         else if (/^\/motd\s*$/i.test(message)) {
           const info = await this.motd(this.store.config);
           reply = `MOTD：${info.motd || '（空）'}\n在线：${info.online ?? '?'} / ${info.max ?? '?'}${info.version ? `\n版本：${info.version}` : ''}`;
-        } else reply = '命令格式：/register <QQ号>、/bind <玩家名>、/motd';
+        } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/motd';
       }
       await this.send(event, reply.slice(0, 1800));
     } catch (error) {
@@ -112,33 +114,57 @@ export class Bridge {
 
   beginRegistration(openid, group, message) {
     if (this.store.state.users[openid]?.qq) return `已登记 QQ 号 ${this.store.state.users[openid].qq}，无需重复登记。`;
-    const qq = message.match(/^\/register\s+(\d{5,20})\s*$/i)?.[1];
-    if (!qq || !QQ_FORMAT.test(qq)) return '格式：/register <你的QQ号>，例如 /register 36000000';
+    const qq = message.match(/^\/qqbind\s+(\d{5,20})\s*$/i)?.[1];
+    if (!qq || !QQ_FORMAT.test(qq)) return '格式：/qqbind <你的QQ号>，例如 /qqbind 36000000';
     if (this.store.qqOwner(qq, openid)) return '这个 QQ 号已被登记，请联系管理员核对。';
     const pending = { group, qq, code: `BIND-${randomBytes(3).toString('hex').toUpperCase()}`, expires: Date.now() + CODE_TTL };
     this.pending.set(openid, pending);
-    return `请二次核对你填写的 QQ 号：${qq}\n如果正确，请由你本人在本群 @机器人发送：/confirm ${pending.code}\n有效期：5 分钟。确认后自动登记，不需要管理员审核。注意：此步骤不验证 QQ 号归属，也不会绑定 MC 玩家。`;
+    return `请二次核对你填写的 QQ 号：${qq}\n如果正确，请由你本人在本群 @机器人发送：${pending.code}\n有效期：5 分钟。确认后自动登记，不需要管理员审核。注意：此步骤不验证 QQ 号归属，也不会绑定 MC 玩家。`;
   }
 
   confirmRegistration(openid, group, code) {
     const pending = this.pending.get(openid);
-    if (!pending || pending.code !== code || pending.group !== group) return '确认码无效，或不属于你及当前群。请重新发送 /register <QQ号>。';
-    if (pending.expires < Date.now()) { this.pending.delete(openid); return '确认码已过期，请重新发送 /register <QQ号>。'; }
+    if (!pending || pending.code !== code || pending.group !== group) return '确认码无效，或不属于你及当前群。请重新发送 /qqbind <QQ号>。';
+    if (pending.expires < Date.now()) { this.pending.delete(openid); return '确认码已过期，请重新发送 /qqbind <QQ号>。'; }
     this.store.register(openid, pending.qq, group);
     this.pending.delete(openid);
+    this.lastCommand.delete(openid);
     this.store.audit('register', `OpenID ${openid} 自填并确认 QQ ${pending.qq}`);
-    return `QQ 号 ${pending.qq} 已登记。现在可以发送 /bind <玩家名>（例如 /bind implayer），或发送 /motd。`;
+    return `QQ 号 ${pending.qq} 已登记。现在可以发送 /mcbind <玩家名>（例如 /mcbind implayer）、/mcunbind <玩家名> 或 /motd。之前被拦下的命令请重新发送。`;
+  }
+
+  unbindQq(openid, message) {
+    if (!/^\/qqunbind\s*$/i.test(message)) return '格式：/qqunbind';
+    this.store.unregister(openid);
+    this.store.audit('qq-unbind', `OpenID ${openid} 解除了 QQ 登记`);
+    return 'QQ 号已解除登记。再次使用业务命令前，请先发送 /qqbind <QQ号>。';
   }
 
   async bindPlayer(openid, group, message) {
-    const match = message.match(/^\/bind\s+([A-Za-z0-9_]{3,16})\s*$/i);
-    if (!match) return '格式：/bind <Minecraft 玩家名>，例如 /bind implayer';
+    const match = message.match(/^\/mcbind\s+([A-Za-z0-9_]{3,16})\s*$/i);
+    if (!match) return '格式：/mcbind <Minecraft 玩家名>，例如 /mcbind implayer';
     const qq = this.store.state.users[openid]?.qq;
-    if (!qq) return '请先发送 /register <QQ号> 完成登记。';
+    if (!qq) return '请先发送 /qqbind <QQ号> 完成登记。';
     const player = match[1];
+    this.store.assertPlayerAvailable(openid, player);
     const result = await this.rcon(this.store.config, `aqqbot whitelist bind ${qq} ${player}`);
     this.store.recordBinding(openid, player, '已发送，待服务器确认');
     this.store.audit('bind-command', `群 ${group}，QQ ${qq}，玩家 ${player}：RCON 已执行`);
     return `已为玩家 ${player} 发送 AQQBot 绑定命令，使用的 QQ 号是 ${qq}。${result ? `\n服务器响应：${result.slice(0, 500)}` : '\n服务器未返回文本，请以 AQQBot/服务器实际绑定状态为准。'}`;
+  }
+
+  async unbindPlayer(openid, group, message) {
+    const match = message.match(/^\/mcunbind\s+([A-Za-z0-9_]{3,16})\s*$/i);
+    if (!match) return '格式：/mcunbind <Minecraft 玩家名>，例如 /mcunbind implayer';
+    const binding = this.store.getBindings(openid).find(item => item.player.toLowerCase() === match[1].toLowerCase());
+    if (!binding) return '这个玩家不在你的绑定列表中。';
+    const result = await this.rcon(this.store.config, `aqqbot whitelist unbind name ${binding.player}`);
+    if (!/(?:成功|successfully|unbound)/i.test(result) || /(?:失败|错误|无效|不存在|没有|未绑定|not bound|invalid|error)/i.test(result)) {
+      this.store.audit('unbind-unconfirmed', `群 ${group}，OpenID ${openid}，玩家 ${binding.player}：服务器未明确确认解绑`);
+      return `服务器未明确确认解绑，本地记录未删除。服务器响应：${result || '（无返回文字）'}。请管理员在 RCON 终端核对。`;
+    }
+    this.store.removeBinding(openid, binding.player);
+    this.store.audit('mc-unbind', `群 ${group}，OpenID ${openid}，玩家 ${binding.player}：服务器确认解绑`);
+    return `玩家 ${binding.player} 已从当前 QQ 号解绑；其他玩家和 QQ 登记保持不变。服务器响应：${result.slice(0, 500)}`;
   }
 }
