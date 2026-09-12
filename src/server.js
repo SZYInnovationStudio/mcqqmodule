@@ -29,6 +29,7 @@ const assets = {
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/account.css': ['account.css', 'text/css; charset=utf-8'],
   '/pages.css': ['pages.css', 'text/css; charset=utf-8'],
+  '/users.css': ['users.css', 'text/css; charset=utf-8'],
   '/common.js': ['common.js', 'text/javascript; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/settings.js': ['settings.js', 'text/javascript; charset=utf-8'],

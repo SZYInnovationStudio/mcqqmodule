@@ -23,12 +23,12 @@ async function refresh() {
     $('next-link').textContent = '去修改信息';
   } else if (status.bot !== '已连接') {
     $('next-title').textContent = '检查 QQ 机器人连接';
-    $('next-description').textContent = '机器人还没连上。请到「修改信息」核对 WebSocket 地址和 Token。';
+    $('next-description').textContent = '机器人还没连上。请到「修改信息」核对 QQ 官方 Bot 的 AppID 和 AppSecret。';
     $('next-link').href = '/settings';
     $('next-link').textContent = '检查连接';
   } else {
     $('next-title').textContent = '可以到 QQ 群里试用了';
-    $('next-description').textContent = '先用登记码确认 QQ 号，再发送 /bind 玩家名进行真正绑定。';
+    $('next-description').textContent = '先发送 /register QQ号 并按回显二次确认，再发送 /bind 玩家名进行真正绑定。';
     $('next-link').href = '/guide';
     $('next-link').textContent = '看使用教程';
   }
