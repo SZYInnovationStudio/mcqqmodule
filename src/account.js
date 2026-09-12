@@ -9,8 +9,8 @@ function checkUsername(username) {
 }
 
 function checkPassword(password) {
-  if (typeof password !== 'string' || password.length < 12 || password.length > 256) {
-    throw new Error('密码需为 12–256 位');
+  if (typeof password !== 'string' || password.length < 6 || password.length > 256 || !/^[A-Za-z0-9]+$/.test(password) || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+    throw new Error('密码至少 6 位，只能用字母和数字，且必须同时包含两者');
   }
 }
 
