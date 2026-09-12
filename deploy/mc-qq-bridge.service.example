@@ -1,0 +1,18 @@
+[Unit]
+Description=MC QQ Bridge admin panel and official QQ bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=your_login_user
+WorkingDirectory=/home/your_login_user/mc-qq-bridge
+ExecStart=/usr/bin/node src/server.js
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
