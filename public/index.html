@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101a2c">
+  <title>MC × QQ 管理后台</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div>
+      <div class="top-actions"><span class="local-tag">本机 · 2556</span><button id="logout" class="ghost" hidden>退出登录</button></div>
+    </header>
+
+    <section id="login-view" class="login-card">
+      <div class="eyebrow">管理员验证</div>
+      <h1>登录管理后台</h1>
+      <p>输入启动服务时设置的 ADMIN_PASSWORD。</p>
+      <form id="login-form"><label for="password">管理员密码</label><input id="password" type="password" autocomplete="current-password" required minlength="12"><button type="submit" class="primary">登录</button></form>
+      <p id="login-message" class="message" role="status"></p>
+    </section>
+
+    <div id="dashboard" hidden>
+      <div class="page-intro"><div><div class="eyebrow">控制台</div><h1>连接与运行状态</h1><p>配置一次连接，QQ 群内即可使用绑定、MOTD 与近两分钟消息查询。</p></div><button id="refresh" class="secondary">刷新状态</button></div>
+      <div class="status-grid">
+        <div class="status-card"><span>QQ Bot</span><strong id="bot-status">—</strong><small>OneBot v11 正向 WebSocket</small></div>
+        <div class="status-card"><span>RCON</span><strong id="rcon-status">—</strong><small>执行 AQQBot 绑定指令</small></div>
+        <div class="status-card"><span>MCSManager</span><strong id="mcsm-status">—</strong><small>读取服务器控制台日志</small></div>
+        <div class="status-card"><span>已登记 QQ / 绑定记录</span><strong id="counts">—</strong><small>首次使用命令自动登记</small></div>
+      </div>
+
+      <div class="content-grid">
+        <section class="panel config-panel"><div class="panel-head"><div><div class="eyebrow">连接配置</div><h2>服务接入</h2></div><span class="chip">密钥加密保存</span></div>
+          <form id="config-form">
+            <fieldset><legend>RCON · 命令执行</legend><div class="fields two"><label>RCON 主机<input name="rconHost" placeholder="127.0.0.1" autocomplete="off"></label><label>RCON 端口<input name="rconPort" type="number" min="1" max="65535" placeholder="25575"></label><label class="wide">RCON 密码<input name="rconPassword" type="password" placeholder="留空则保持原密码" autocomplete="new-password"></label></div></fieldset>
+            <fieldset><legend>MCSManager · 日志获取</legend><div class="fields two"><label class="wide">面板 URL<input name="mcsmUrl" type="url" placeholder="https://panel.example.com"></label><label class="wide">API Key<input name="mcsmApiKey" type="password" placeholder="留空则保持原密钥" autocomplete="new-password"></label><label>Daemon ID<input name="daemonId" autocomplete="off"></label><label>实例 UUID<input name="instanceId" autocomplete="off"></label></div></fieldset>
+            <fieldset><legend>Minecraft · MOTD 查询</legend><div class="fields two"><label>服务器主机<input name="mcHost" placeholder="mc.example.com" autocomplete="off"></label><label>游戏端口<input name="mcPort" type="number" min="1" max="65535" placeholder="25565"></label></div></fieldset>
+            <fieldset><legend>QQ Bot · OneBot v11</legend><div class="fields two"><label class="wide">正向 WebSocket 地址<input name="onebotWsUrl" placeholder="ws://127.0.0.1:3001/" autocomplete="off"></label><label class="wide">Access Token<input name="onebotToken" type="password" placeholder="留空则保持原 Token" autocomplete="new-password"></label><label class="wide">允许的 QQ 群号<input name="allowedGroups" placeholder="多个群号用逗号分隔" autocomplete="off"></label></div></fieldset>
+            <div class="form-footer"><p>只处理允许群内的 <code>/bind 玩家名</code>、<code>/motd</code>、<code>/logs</code>。</p><button type="submit" class="primary">保存配置</button></div>
+          </form><p id="config-message" class="message" role="status"></p>
+        </section>
+        <div class="side-stack">
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">连接诊断</div><h2>测试接入</h2></div></div><p>先保存配置，再分别测试。RCON 测试仅执行只读的 <code>list</code> 命令。</p><div class="test-buttons"><button data-test="rcon" class="secondary">测试 RCON</button><button data-test="mcsm" class="secondary">测试面板</button><button data-test="motd" class="secondary">测试 MOTD</button></div><pre id="test-output" class="result" role="status">等待测试…</pre></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">QQ 指令</div><h2>使用流程</h2></div></div><ol class="steps"><li><code>/bind implayer</code><span>自动登记 QQ 号，获得 5 分钟绑定码</span></li><li><code>BIND-XXXXXX</code><span>本人在同一群发送，RCON 执行插件绑定指令</span></li><li><code>/motd</code> / <code>/logs</code><span>查询 MOTD 或近 2 分钟玩家消息</span></li></ol></section>
+        </div>
+      </div>
+      <div class="bottom-grid"><section class="panel"><div class="panel-head"><div><div class="eyebrow">绑定</div><h2>绑定记录</h2></div></div><div id="bindings" class="records empty">暂无绑定记录</div></section><section class="panel"><div class="panel-head"><div><div class="eyebrow">审计</div><h2>最近操作</h2></div></div><div id="audit" class="records empty">暂无操作记录</div></section></div>
+    </div>
+  </main>
+</body>
+</html>
