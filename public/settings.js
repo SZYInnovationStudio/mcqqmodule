@@ -22,9 +22,9 @@ $('config-form').addEventListener('submit', async event => {
     const config = Object.fromEntries(new FormData(form));
     config.mcToQqEnabled = form.elements.mcToQqEnabled.checked;
     config.qqToMcEnabled = form.elements.qqToMcEnabled.checked;
-    await api('config', { method: 'POST', body: JSON.stringify(config) });
+    const saved = await api('config', { method: 'POST', body: JSON.stringify(config) });
     await loadConfig();
-    message('config-message', '信息已保存。现在可以在右侧测试连接。');
+    message('config-message', `信息已保存。${saved.relayResult}`);
   } catch (error) { message('config-message', error.message, true); }
   finally { button.disabled = false; }
 });

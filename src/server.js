@@ -131,11 +131,11 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig(store.config));
     if (path === '/api/config' && req.method === 'POST') {
       const next = validateConfig(await body(req), store.config);
-      if (next.aqqbotConfigPath && next.aqqbotMessagesPath) await applyAqqbotRelay(next, rconCommand);
+      const relay = next.aqqbotConfigPath && next.aqqbotMessagesPath ? await applyAqqbotRelay(next, rconCommand) : null;
       store.saveConfig(next);
       store.audit('config', '管理员更新了连接配置');
       bridge.restart();
-      return json(res, 200, publicConfig(next));
+      return json(res, 200, { ...publicConfig(next), relayResult: relay?.output ?? 'AQQBot 实际文件路径未配置，聊天开关保持关闭' });
     }
     if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.values(store.state.bindings).reduce((count, bindings) => count + bindings.length, 0), rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
     if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, store.listUsers().flatMap(user => user.bindings.map(binding => ({ qq: user.qq, ...binding }))));
