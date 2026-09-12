@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { QQBot, messageFilter } from '@tencent-connect/qqbot-nodejs';
 import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
-import { ChatLogTail, cleanChat, parseOnlineList, qqTellraw } from './chat-relay.js';
+import { parseOnlineList } from './chat-relay.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -26,24 +26,12 @@ export class Bridge {
     this.status = '未连接';
     this.bot = null;
     this.stopped = false;
-    this.logTail = null;
   }
 
-  start() {
-    this.stopped = false;
-    this.connect();
-    if (this.store.config.mcToQqEnabled === true && this.store.config.mcLogPath) {
-      this.logTail = new ChatLogTail(this.store.config.mcLogPath,
-        chat => this.forwardMcChat(chat),
-        error => this.store.audit('chat-log-error', `MC 聊天日志读取失败：${error.message}`));
-      this.logTail.start();
-    }
-  }
+  start() { this.stopped = false; this.connect(); }
 
   stop() {
     this.stopped = true;
-    this.logTail?.stop();
-    this.logTail = null;
     this.bot?.stop();
     this.bot = null;
     this.status = '未连接';
@@ -85,25 +73,6 @@ export class Bridge {
     await this.bot.sendText(event.replyTarget, message);
   }
 
-  async forwardMcChat({ player, content }) {
-    if (this.stopped || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
-    const groups = this.store.config.allowedGroups?.split(',').filter(Boolean) ?? [];
-    for (const group of groups) {
-      try {
-        await this.bot.sendText({ scope: 'group', targetId: group }, `[服务器] ${player}:${content}`);
-      } catch (error) { this.store.audit('chat-qq-error', `群 ${group} 消息发送失败：${error.message}`); }
-    }
-  }
-
-  async forwardQqChat(event, message) {
-    if (this.store.config.qqToMcEnabled !== true) return;
-    const nickname = cleanChat(event.senderName || this.store.state.users[event.senderId]?.qq || '群友', 48);
-    const command = qqTellraw(nickname, message);
-    if (!command) return;
-    try { await this.rcon(this.store.config, command); }
-    catch (error) { this.store.audit('chat-rcon-error', `群消息发送到 MC 失败：${error.message}`); }
-  }
-
   async handleEvent(event) {
     if (event.kind !== 'group' || event.senderIsBot === true || event.raw?.author?.bot === true) return;
     const openid = String(event.senderId ?? '');
@@ -118,15 +87,12 @@ export class Bridge {
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
     const isCommand = /^\/(?:qqbind|qqunbind|mcbind|mcunbind|mcunallbind|motd|list)(?:\s|$)/i.test(message);
+    if (!isCommand && !isCode) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
       if (this.seen.has(key)) return;
       this.seen.set(key, Date.now());
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
-    }
-    if (!isCommand && !isCode) {
-      if (message && !message.startsWith('/')) await this.forwardQqChat(event, message);
-      return;
     }
     const ownCode = submittedCode && this.pending.get(openid)?.code === submittedCode && this.pending.get(openid)?.group === group;
     const now = Date.now();

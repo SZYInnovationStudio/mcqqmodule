@@ -1,6 +1,6 @@
-import { isAbsolute } from 'node:path';
+import { basename, isAbsolute } from 'node:path';
 
-const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'mcLogPath', 'qqAppId', 'qqAppSecret', 'allowedGroups'];
+const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'aqqbotConfigPath', 'aqqbotMessagesPath', 'qqAppId', 'qqAppSecret', 'allowedGroups'];
 const secrets = ['rconPassword', 'qqAppSecret'];
 const relayFlags = ['mcToQqEnabled', 'qqToMcEnabled'];
 
@@ -16,12 +16,16 @@ export function validateConfig(input, current = {}) {
   }
   next.allowedGroups = next.allowedGroups.split(/[\s,，]+/).filter(Boolean).join(',');
   if (next.allowedGroups && !/^[A-Za-z0-9_-]{5,128}(,[A-Za-z0-9_-]{5,128})*$/.test(next.allowedGroups)) throw new Error('群 OpenID 列表格式不合法');
-  if (next.mcLogPath && (next.mcLogPath.length > 1024 || !isAbsolute(next.mcLogPath) || !/\.log$/i.test(next.mcLogPath) || /[\r\n\0]/.test(next.mcLogPath))) throw new Error('MC 日志路径必须是完整的 .log 文件路径');
+  for (const [key, name] of [['aqqbotConfigPath', 'config.yml'], ['aqqbotMessagesPath', 'messages.yml']]) {
+    const path = next[key];
+    if (path && (path.length > 1024 || !isAbsolute(path) || basename(path).toLowerCase() !== name || /[\r\n\0]/.test(path))) throw new Error(`${key} 必须是服务器正在使用的 ${name} 完整路径`);
+  }
   for (const flag of relayFlags) {
     const value = input[flag] ?? current[flag] ?? false;
     if (value !== true && value !== false) throw new Error(`${flag} 开关格式无效`);
     next[flag] = value;
   }
+  if ((next.mcToQqEnabled || next.qqToMcEnabled) && (!next.aqqbotConfigPath || !next.aqqbotMessagesPath)) throw new Error('开启聊天转发前，必须填写服务器正在使用的 AQQBot config.yml 和 messages.yml 完整路径');
   return next;
 }
 

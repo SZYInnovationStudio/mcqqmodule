@@ -9,6 +9,7 @@ import { validateConfig, publicConfig } from './config.js';
 import { Bridge } from './bridge.js';
 import { queryMotd } from './motd.js';
 import { rconCommand } from './rcon.js';
+import { applyAqqbotRelay } from './aqqbot-relay.js';
 
 const HOST = '127.0.0.1';
 const PORT = 2556;
@@ -130,6 +131,7 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig(store.config));
     if (path === '/api/config' && req.method === 'POST') {
       const next = validateConfig(await body(req), store.config);
+      if (next.aqqbotConfigPath && next.aqqbotMessagesPath) await applyAqqbotRelay(next, rconCommand);
       store.saveConfig(next);
       store.audit('config', '管理员更新了连接配置');
       bridge.restart();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Storage } from '../src/storage.js';
@@ -9,7 +9,8 @@ import { validateConfig, publicConfig } from '../src/config.js';
 import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
-import { ChatLogTail, parseOnlineList, parsePlayerChat, qqTellraw } from '../src/chat-relay.js';
+import { parseOnlineList } from '../src/chat-relay.js';
+import { applyAqqbotRelay, prepareRelayFiles, MC_TO_QQ_TEMPLATE, QQ_TO_MC_TEMPLATE } from '../src/aqqbot-relay.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
@@ -33,69 +34,54 @@ test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家',
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('MC 玩家聊天主动发送到允许的 QQ 群，Bot 未连接时不推送', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123,OTHER_GROUP_123', mcToQqEnabled: true };
-    const sent = [];
-    const bridge = new Bridge(store);
-    bridge.bot = { sendText: async (target, message) => sent.push({ target, message }) };
-    bridge.status = '已连接';
-    await bridge.forwardMcChat({ player: 'Alex', content: '大家好' });
-    assert.deepEqual(sent.map(item => item.message), ['[服务器] Alex:大家好', '[服务器] Alex:大家好']);
-    assert.deepEqual(sent[0].target, { scope: 'group', targetId: 'GROUP_OPENID_123' });
-    bridge.status = '未连接';
-    await bridge.forwardMcChat({ player: 'Alex', content: '不会发送' });
-    assert.equal(sent.length, 2);
-    bridge.status = '已连接';
-    store.config.mcToQqEnabled = false;
-    await bridge.forwardMcChat({ player: 'Alex', content: '关闭后不会发送' });
-    assert.equal(sent.length, 2);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('QQ 普通群聊安全转发 MC；自身消息、重复消息与命令不会转发', async () => {
+test('普通 QQ 群聊由 AQQBot 处理，本平台不再重复发送 tellraw', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
     store.config = { allowedGroups: 'GROUP_OPENID_123', qqToMcEnabled: true };
     const commands = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return ''; }, send: async () => {} });
-    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: '群昵称', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, messageId: 'chat-1', content: '你好; op someone\n第二行' };
+    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: '群昵称', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, messageId: 'chat-1', content: '你好' };
     await bridge.handleEvent(event);
     await bridge.handleEvent(event);
     await bridge.handleEvent({ ...event, senderIsBot: true, messageId: 'chat-2' });
     await bridge.handleEvent({ ...event, messageId: 'chat-3', content: '/unknown' });
-    assert.equal(commands.length, 1);
-    assert.ok(commands[0].startsWith('tellraw @a '));
-    const component = JSON.parse(commands[0].slice('tellraw @a '.length));
-    assert.deepEqual(component.extra[0], { text: '[QQ群]', color: 'green' });
-    assert.equal(component.extra[1].text, ' 群昵称:你好; op someone 第二行');
-    assert.equal(qqTellraw('x', ''), null);
-    store.config.qqToMcEnabled = false;
-    await bridge.handleEvent({ ...event, messageId: 'chat-4', content: '关闭后不会发送' });
-    assert.equal(commands.length, 1);
+    assert.deepEqual(commands, []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('仅识别日志中新出现的玩家聊天并转发 QQ，跳过系统行', async () => {
+test('仅修改 AQQBot 双向聊天开关与显示模板，其他配置不变', async () => {
+  const sourceConfig = 'whitelist:\n  enable: true\nchat:\n  group_to_server:\n    enable: true\n  server_to_group:\n    enable: true\ninformation:\n  list:\n    enable: true\n';
+  const sourceMessages = 'qq:\n  chat_from_game: "old"\ngame:\n  chat_from_qq: "old"\n';
+  const result = prepareRelayFiles(sourceConfig, sourceMessages, { qqToMcEnabled: false, mcToQqEnabled: true });
+  assert.match(result.configText, /group_to_server:\n    enable: false/);
+  assert.match(result.configText, /server_to_group:\n    enable: true/);
+  assert.match(result.configText, /whitelist:\n  enable: true/);
+  assert.match(result.configText, /information:\n  list:\n    enable: true/);
+  assert.ok(result.messagesText.includes(JSON.stringify(MC_TO_QQ_TEMPLATE)));
+  assert.ok(result.messagesText.includes(JSON.stringify(QQ_TO_MC_TEMPLATE)));
+});
+
+test('更新真实 AQQBot 文件后重载；重载失败则恢复原文件', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
-    const path = join(dir, 'latest.log');
-    writeFileSync(path, '[12:00:00] [Server thread/INFO]: <OldPlayer> 历史消息\n');
-    const chats = [];
-    const tail = new ChatLogTail(path, chat => chats.push(chat));
-    tail.running = true;
-    await tail.poll();
-    appendFileSync(path, '[12:00:01] [Server thread/INFO]: <NewPlayer> 你好 QQ\n[12:00:02] [Server thread/INFO]: Done (1.2s)!\n');
-    await tail.poll();
-    writeFileSync(path, '[12:00:03] [Server thread/INFO]: <Rotated> 换日志后消息\n');
-    await tail.poll();
-    tail.stop();
-    assert.deepEqual(chats, [{ player: 'NewPlayer', content: '你好 QQ' }, { player: 'Rotated', content: '换日志后消息' }]);
-    assert.equal(parsePlayerChat('[12:00:03] [Server thread/INFO]: <NewPlayer> [QQ群] 回环'), null);
-    assert.deepEqual(parsePlayerChat('[12:00:04 INFO]: <Alex> hello'), { player: 'Alex', content: 'hello' });
+    const aqqbotConfigPath = join(dir, 'config.yml');
+    const aqqbotMessagesPath = join(dir, 'messages.yml');
+    const originalConfig = 'chat:\n  group_to_server:\n    enable: true\n  server_to_group:\n    enable: true\n';
+    const originalMessages = 'qq:\n  chat_from_game: "old"\ngame:\n  chat_from_qq: "old"\n';
+    writeFileSync(aqqbotConfigPath, originalConfig);
+    writeFileSync(aqqbotMessagesPath, originalMessages);
+    const config = { aqqbotConfigPath, aqqbotMessagesPath, qqToMcEnabled: false, mcToQqEnabled: true };
+    const commands = [];
+    const result = await applyAqqbotRelay(config, async (_config, command) => { commands.push(command); return '插件配置重载成功!'; });
+    assert.equal(result.changed, true);
+    assert.deepEqual(commands, ['aqqbot reload']);
+    assert.match(readFileSync(aqqbotConfigPath, 'utf8'), /group_to_server:\n    enable: false/);
+    writeFileSync(aqqbotConfigPath, originalConfig);
+    writeFileSync(aqqbotMessagesPath, originalMessages);
+    await assert.rejects(applyAqqbotRelay(config, async () => { throw new Error('RCON 失败'); }), /已尝试恢复原文件/);
+    assert.equal(readFileSync(aqqbotConfigPath, 'utf8'), originalConfig);
+    assert.equal(readFileSync(aqqbotMessagesPath, 'utf8'), originalMessages);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -113,9 +99,11 @@ test('配置密钥加密保存且读取时不回传', () => {
     assert.equal(validateConfig({ qqAppSecret: '' }, config).qqAppSecret, 'secret-bot');
     assert.equal(publicConfig(config).mcToQqEnabled, false);
     assert.equal(publicConfig(config).qqToMcEnabled, false);
-    const toggled = validateConfig({ mcToQqEnabled: true, qqToMcEnabled: false }, config);
+    const paths = { aqqbotConfigPath: join(dir, 'config.yml'), aqqbotMessagesPath: join(dir, 'messages.yml') };
+    const toggled = validateConfig({ ...paths, mcToQqEnabled: true, qqToMcEnabled: false }, config);
     assert.equal(publicConfig(toggled).mcToQqEnabled, true);
     assert.equal(publicConfig(toggled).qqToMcEnabled, false);
+    assert.throws(() => validateConfig({ mcToQqEnabled: true }, config), /完整路径/);
     assert.throws(() => validateConfig({ qqToMcEnabled: 'anything' }, config), /开关格式无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
