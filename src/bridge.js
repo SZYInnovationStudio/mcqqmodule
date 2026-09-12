@@ -106,7 +106,7 @@ export class Bridge {
     if (isNew) this.store.audit('register', `QQ ${qq} 自动登记`);
     try {
       let reply;
-      if (/^\/bind(?:\s|$)/i.test(message)) reply = this.beginBind(qq, message);
+      if (/^\/bind(?:\s|$)/i.test(message)) reply = this.beginBind(qq, group, message);
       else if (/^BIND-[A-Z0-9]{6}$/i.test(message)) reply = await this.confirmBind(qq, group, message.toUpperCase());
       else if (/^\/motd\s*$/i.test(message)) {
         const info = await this.motd(this.store.config);
@@ -123,17 +123,17 @@ export class Bridge {
     }
   }
 
-  beginBind(qq, message) {
+  beginBind(qq, group, message) {
     const match = message.match(/^\/bind\s+([A-Za-z0-9_]{3,16})\s*$/i);
     if (!match) return '格式：/bind <Minecraft 玩家名>，例如 /bind implayer';
     const code = `BIND-${randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`;
-    this.pending.set(qq, { player: match[1], code, expires: Date.now() + CODE_TTL });
+    this.pending.set(qq, { player: match[1], group, code, expires: Date.now() + CODE_TTL });
     return `QQ 号绑定\n玩家：${match[1]}\n绑定码：${code}\n有效期：5 分钟\n请由你本人在本群发送这串码；其他 QQ 号发送无效。`;
   }
 
   async confirmBind(qq, group, code) {
     const pending = this.pending.get(qq);
-    if (!pending || pending.code !== code) return '绑定码无效，或不属于你的 QQ 号。请重新使用 /bind <玩家名>。';
+    if (!pending || pending.code !== code || pending.group !== group) return '绑定码无效，或不属于你的 QQ 号及当前群。请重新使用 /bind <玩家名>。';
     if (pending.expires < Date.now()) { this.pending.delete(qq); return '绑定码已过期，请重新使用 /bind <玩家名>。'; }
     this.pending.delete(qq);
     const command = `aqqbot whitelist bind ${qq} ${pending.player}`;

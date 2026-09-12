@@ -3,9 +3,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from '
 import { join } from 'node:path';
 
 const DATA_DIR = join(process.cwd(), 'data');
-const KEY_FILE = join(DATA_DIR, 'master.key');
-const STATE_FILE = join(DATA_DIR, 'state.json');
-const CONFIG_FILE = join(DATA_DIR, 'config.enc');
 
 function readJson(path, fallback) {
   if (!existsSync(path)) return fallback;
