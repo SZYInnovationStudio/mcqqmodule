@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Storage } from '../src/storage.js';
@@ -9,6 +9,67 @@ import { validateConfig, publicConfig } from '../src/config.js';
 import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
+import { ChatLogTail, parseOnlineList, parsePlayerChat, qqTellraw } from '../src/chat-relay.js';
+
+test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    store.config = { allowedGroups: 'GROUP_OPENID_123' };
+    const replies = [];
+    const commands = [];
+    const bridge = new Bridge(store, {
+      rcon: async (_config, command) => { commands.push(command); return 'There are 2 of a max of 100 players online: Alice, Bob'; },
+      send: async (_event, message) => replies.push(message)
+    });
+    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, content: '/list' };
+    await bridge.handleEvent(event);
+    assert.deepEqual(commands, ['list']);
+    assert.equal(replies[0], '当前在线玩家：Alice，Bob');
+    assert.deepEqual(parseOnlineList('There are 0 of a max of 100 players online:'), []);
+    assert.equal(parseOnlineList('There are 3 of a max of 100 players online: Alice, Bob'), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('QQ 普通群聊安全转发 MC；自身消息、重复消息与命令不会转发', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123' };
+    const commands = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return ''; }, send: async () => {} });
+    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: '群昵称', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, messageId: 'chat-1', content: '你好; op someone\n第二行' };
+    await bridge.handleEvent(event);
+    await bridge.handleEvent(event);
+    await bridge.handleEvent({ ...event, senderIsBot: true, messageId: 'chat-2' });
+    await bridge.handleEvent({ ...event, messageId: 'chat-3', content: '/unknown' });
+    assert.equal(commands.length, 1);
+    assert.ok(commands[0].startsWith('tellraw @a '));
+    const component = JSON.parse(commands[0].slice('tellraw @a '.length));
+    assert.deepEqual(component.extra[0], { text: '[QQ群]', color: 'green' });
+    assert.equal(component.extra[1].text, ' 群昵称:你好; op someone 第二行');
+    assert.equal(qqTellraw('x', ''), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('仅识别日志中新出现的玩家聊天并转发 QQ，跳过系统行', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const path = join(dir, 'latest.log');
+    writeFileSync(path, '[12:00:00] [Server thread/INFO]: <OldPlayer> 历史消息\n');
+    const chats = [];
+    const tail = new ChatLogTail(path, chat => chats.push(chat));
+    tail.running = true;
+    await tail.poll();
+    appendFileSync(path, '[12:00:01] [Server thread/INFO]: <NewPlayer> 你好 QQ\n[12:00:02] [Server thread/INFO]: Done (1.2s)!\n');
+    await tail.poll();
+    tail.stop();
+    assert.deepEqual(chats, [{ player: 'NewPlayer', content: '你好 QQ' }]);
+    assert.equal(parsePlayerChat('[12:00:03] [Server thread/INFO]: <NewPlayer> [QQ群] 回环'), null);
+    assert.deepEqual(parsePlayerChat('[12:00:04 INFO]: <Alex> hello'), { player: 'Alex', content: 'hello' });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('配置密钥加密保存且读取时不回传', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
