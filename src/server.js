@@ -132,14 +132,14 @@ const server = http.createServer(async (req, res) => {
       bridge.restart();
       return json(res, 200, publicConfig(next));
     }
-    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.keys(store.state.bindings).length, rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
-    if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, store.listUsers().filter(user => user.binding).map(user => ({ qq: user.qq, ...user.binding })));
+    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.values(store.state.bindings).reduce((count, bindings) => count + bindings.length, 0), rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
+    if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, store.listUsers().flatMap(user => user.bindings.map(binding => ({ qq: user.qq, ...binding }))));
     if (path === '/api/users' && req.method === 'GET') return json(res, 200, store.listUsers());
     if (path === '/api/users' && req.method === 'POST') {
       const input = await body(req);
       const openid = String(input.openid ?? '');
       if (!/^[A-Za-z0-9_-]{5,128}$/.test(openid)) return json(res, 400, { error: 'OpenID 格式无效' });
-      store.updateUser(openid, String(input.qq ?? '').trim(), String(input.player ?? '').trim());
+      store.updateUser(openid, String(input.qq ?? '').trim(), String(input.players ?? '').trim());
       store.audit('admin-update', `管理员修改了 OpenID ${openid} 的本地记录`);
       return json(res, 200, { ok: true });
     }

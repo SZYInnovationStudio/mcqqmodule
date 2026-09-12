@@ -79,7 +79,7 @@ export class Bridge {
     const message = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
-    if (!/^\/(?:qqbind|qqunbind|mcbind|mcunbind|motd)(?:\s|$)/i.test(message) && !isCode) return;
+    if (!/^\/(?:qqbind|qqunbind|mcbind|mcunbind|mcunallbind|motd)(?:\s|$)/i.test(message) && !isCode) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
       if (this.seen.has(key)) return;
@@ -100,10 +100,11 @@ export class Bridge {
         else if (/^\/qqunbind(?:\s|$)/i.test(message)) reply = this.unbindQq(openid, message);
         else if (/^\/mcbind(?:\s|$)/i.test(message)) reply = await this.bindPlayer(openid, group, message);
         else if (/^\/mcunbind(?:\s|$)/i.test(message)) reply = await this.unbindPlayer(openid, group, message);
+        else if (/^\/mcunallbind(?:\s|$)/i.test(message)) reply = await this.unbindAllPlayers(openid, group, message);
         else if (/^\/motd\s*$/i.test(message)) {
           const info = await this.motd(this.store.config);
           reply = `MOTD：${info.motd || '（空）'}\n在线：${info.online ?? '?'} / ${info.max ?? '?'}${info.version ? `\n版本：${info.version}` : ''}`;
-        } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/motd';
+        } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/mcunallbind、/motd';
       }
       await this.send(event, reply.slice(0, 1800));
     } catch (error) {
@@ -166,5 +167,24 @@ export class Bridge {
     this.store.removeBinding(openid, binding.player);
     this.store.audit('mc-unbind', `群 ${group}，OpenID ${openid}，玩家 ${binding.player}：服务器确认解绑`);
     return `玩家 ${binding.player} 已从当前 QQ 号解绑；其他玩家和 QQ 登记保持不变。服务器响应：${result.slice(0, 500)}`;
+  }
+
+  async unbindAllPlayers(openid, group, message) {
+    if (!/^\/mcunallbind\s*$/i.test(message)) return '格式：/mcunallbind';
+    const players = this.store.getBindings(openid).map(item => item.player);
+    if (!players.length) return '当前 QQ 号没有已记录的 MC 玩家。';
+    const done = [];
+    for (const player of players) {
+      try {
+        await this.unbindPlayer(openid, group, `/mcunbind ${player}`);
+      } catch (error) {
+        return `已解绑 ${done.length} 个玩家：${done.join('、') || '无'}。在 ${player} 处停止：${error.message}；其余玩家未处理。`;
+      }
+      if (this.store.getBindings(openid).some(item => item.player.toLowerCase() === player.toLowerCase())) {
+        return `已解绑 ${done.length} 个玩家：${done.join('、') || '无'}。${player} 未得到服务器明确确认，已停止；其余玩家未处理。`;
+      }
+      done.push(player);
+    }
+    return `已逐条解绑 ${done.length} 个玩家：${done.join('、')}。QQ 号登记仍保留。`;
   }
 }

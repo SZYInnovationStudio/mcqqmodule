@@ -28,7 +28,7 @@ async function refresh() {
     $('next-link').textContent = '检查连接';
   } else {
     $('next-title').textContent = '可以到 QQ 群里试用了';
-    $('next-description').textContent = '先发送 /register QQ号 并按回显二次确认，再发送 /bind 玩家名进行真正绑定。';
+    $('next-description').textContent = '先发送 /qqbind QQ号 并按回显二次确认，再发送 /mcbind 玩家名进行游戏绑定。';
     $('next-link').href = '/guide';
     $('next-link').textContent = '看使用教程';
   }

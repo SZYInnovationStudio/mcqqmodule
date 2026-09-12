@@ -9,7 +9,7 @@ function label(text, value, name, readonly = false) {
   input.readOnly = readonly;
   input.required = name === 'qq';
   if (name === 'qq') { input.inputMode = 'numeric'; input.pattern = '[0-9]{5,20}'; }
-  if (name === 'player') { input.pattern = '[A-Za-z0-9_]{3,16}'; input.title = '3～16 位字母、数字或下划线；留空保持无玩家记录'; }
+  if (name === 'players') input.title = '多个玩家名用逗号分隔；留空代表仅保留 QQ 登记';
   node.append(input);
   return node;
 }
@@ -23,14 +23,14 @@ function userCard(user) {
   title.textContent = `QQ ${user.qq || '未设置'}`;
   const state = document.createElement('span');
   state.className = 'chip';
-  state.textContent = user.binding ? '已有玩家记录' : '仅登记 QQ';
+  state.textContent = user.bindings.length ? `已有 ${user.bindings.length} 个玩家记录` : '仅登记 QQ';
   head.append(title, state);
   const detail = document.createElement('p');
   detail.className = 'hint';
   detail.textContent = `OpenID：${user.openid} · ${user.source === 'self-confirmed' ? '用户自行确认' : '旧版记录'} · 登记于 ${new Date(user.registeredAt).toLocaleString()}`;
   const form = document.createElement('form');
   form.className = 'user-form';
-  form.append(label('QQ 号', user.qq, 'qq'), label('Minecraft 玩家名（可留空）', user.binding?.player ?? '', 'player'));
+  form.append(label('QQ 号', user.qq, 'qq'), label('Minecraft 玩家名（多个用逗号分隔）', user.bindings.map(item => item.player).join(', '), 'players'));
   const actions = document.createElement('div');
   actions.className = 'user-actions';
   const save = document.createElement('button');
@@ -44,7 +44,7 @@ function userCard(user) {
   actions.append(save, remove);
   const note = document.createElement('small');
   note.className = 'user-note';
-  note.textContent = user.binding ? `本地状态：${user.binding.status}` : '尚未向 AQQBot 发送玩家绑定命令';
+  note.textContent = user.bindings.length ? `本地状态：${user.bindings.map(item => `${item.player}：${item.status}`).join('；')}` : '尚无玩家绑定记录';
   const status = document.createElement('p');
   status.className = 'message';
   status.setAttribute('role', 'status');
@@ -53,7 +53,7 @@ function userCard(user) {
     event.preventDefault();
     save.disabled = true;
     try {
-      await api('users', { method: 'POST', body: JSON.stringify({ openid: user.openid, qq: form.elements.qq.value, player: form.elements.player.value }) });
+      await api('users', { method: 'POST', body: JSON.stringify({ openid: user.openid, qq: form.elements.qq.value, players: form.elements.players.value }) });
       status.textContent = '已修改本平台记录；如涉及已绑定玩家，请到服务器核对 AQQBot。';
       await loadUsers();
     } catch (error) { status.textContent = error.message; status.classList.add('error'); }
@@ -76,7 +76,7 @@ async function loadUsers() {
   const users = await api('users');
   const root = $('users-list');
   root.replaceChildren();
-  if (!users.length) { root.textContent = '还没有用户登记。请让群友先发送 /register <QQ号>。'; return; }
+  if (!users.length) { root.textContent = '还没有用户登记。请让群友先发送 /qqbind <QQ号>。'; return; }
   for (const user of users.sort((a, b) => (b.registeredAt ?? '').localeCompare(a.registeredAt ?? ''))) root.append(userCard(user));
 }
 

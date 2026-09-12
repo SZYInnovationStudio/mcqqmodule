@@ -1,47 +1,33 @@
-# MC × QQ：本项目完整命令对照
+# MC × QQ 命令清单
 
-本项目使用 QQ 官方 Bot。建议在目标 QQ 群里 **@机器人后**发送下面的命令；机器人只处理已填入后台“允许使用的群 OpenID”的群。QQ 平台的指令配置用于展示/方便输入，真正的执行逻辑以本项目收到的消息文本为准。指令名称必须与下表一致。
+QQ 群内建议先 @机器人。机器人只处理后台「允许使用的群 OpenID」里的消息。QQ 官方 Bot 指令配置中只添加下列六个名字；若平台输入框自带 `/`，只填名字本身。
 
-## QQ 官方 Bot 指令配置：只添加这 4 个
-
-| 指令名（输入框自带 `/` 时不要再加） | 指令介绍建议填写 | 用户实际发送的格式 | 参数规则 |
+| 指令名 | 群友发送格式 | 作用 | 服务器 RCON 对应命令 |
 | --- | --- | --- | --- |
-| `register` | 登记自己的 QQ 号 | `/register <QQ号>` | 必填；5～20 位数字，例如 `/register 36000000` |
-| `confirm` | 二次核对并确认 QQ 登记 | `/confirm BIND-XXXXXX` | 必填；机器人临时给的码，5 分钟内、同一用户同一群有效 |
-| `bind` | 绑定 Minecraft 玩家 | `/bind <玩家名>` | 必填；3～16 位英文字母、数字或下划线，例如 `/bind implayer` |
-| `motd` | 查询服务器介绍与在线人数 | `/motd` | 不带参数 |
+| `qqbind` | `/qqbind <数字QQ号>` | 将消息发送者 OpenID 与自填 QQ 号一对一登记；未登记者也可使用 | 无 |
+| `qqunbind` | `/qqunbind` | 名下没有 MC 玩家时解除 QQ 登记 | 无 |
+| `mcbind` | `/mcbind <玩家名>` | 把一个 MC 玩家加入自己名下；可绑定多个 | `aqqbot whitelist bind <已登记QQ号> <玩家名>` |
+| `mcunbind` | `/mcunbind <玩家名>` | 只解绑自己名下的指定玩家 | `aqqbot whitelist unbind name <玩家名>` |
+| `mcunallbind` | `/mcunallbind` | 逐条解绑自己名下的全部 MC 玩家；任一步未确认则停止 | 对每个玩家逐条发送 `aqqbot whitelist unbind name <玩家名>` |
+| `motd` | `/motd` | 查询服务器介绍、版本与在线人数 | 无，使用 Minecraft 状态协议 |
 
-实际群消息示例：
+例子：
 
 ```text
-@机器人 /register 36000000
-@机器人 /confirm BIND-4A5EB8
-@机器人 /bind implayer
+@机器人 /qqbind 36000000
+@机器人 BIND-4A5EB8
+@机器人 /mcbind implayer
+@机器人 /mcbind secondplayer
 @机器人 /motd
+@机器人 /mcunbind implayer
+@机器人 /mcunallbind
+@机器人 /qqunbind
 ```
 
-`BIND-4A5EB8` 只是示例，实际验证码每次随机生成；**不要**把 `BIND-XXXXXX` 注册成第五个固定指令。现在确认流程推荐明确使用 `/confirm`，而不是只发验证码。
+`BIND-4A5EB8` 仅为随机确认码示例，五分钟内须由同一 OpenID 在同一群发送，不需要注册为 QQ 指令。二次核对只确认用户自己填写的数字，**不能证明数字 QQ 号的归属**，也不会绑定 MC 玩家。
 
-首次发送 `/bind` 或 `/motd`、尚未登记时，机器人只会提示先发送 `/register <QQ号>`。用户登记 QQ 号并确认后，不必每次再填 QQ 号。登记码只确认用户重复核对了填写的数字，**不能证明该 QQ 号归属**，也不会执行 MC 绑定。`/logs`、`/chat` 已按要求取消，不要添加。
+执行顺序：先确认允许群和发送者 OpenID；`/qqbind` 和本人确认码直接进入登记流程；其他五个业务命令先检查 OpenID 是否已有唯一 QQ 登记。未登记时只回复 `/qqbind <QQ号>`，不执行 RCON 或 MOTD；完成登记后用户重新发送原命令。一个 OpenID 只对应一个 QQ 号，一个 QQ 号也只对应一个 OpenID，但可对应多个 MC 玩家；同一个 MC 玩家不能归属两个 QQ。`/qqunbind` 前需先解绑名下全部 MC 玩家。
 
-## 服务器 RCON 命令：不要添加到 QQ 指令配置
+QQ 用户触发游戏绑定/解绑时，RCON 只发送表中的 `aqqbot whitelist bind` 与 `aqqbot whitelist unbind name` 两种命令，不修改 MC 服务器配置。按玩家解绑的格式来自 [AQQBot 源码](https://github.com/alazeprt/AQQBot/blob/refactor/common/src/main/kotlin/top/alazeprt/aqqbot/command/sub/SubUnbind.kt)。插件版本和 RCON 响应需在真实服务器核对：解绑只有在服务器明确回复成功时才从本地记录删除，未确认时停下并保留记录。绑定发送后记录为「待服务器确认」。
 
-管理员在后台“RCON 终端”可发送 Minecraft 控制台命令，例如：
-
-```text
-list
-aqqbot whitelist bind 36000000 implayer
-```
-
-`list` 用于测试 RCON 连接并查看在线玩家。`aqqbot whitelist bind <数字QQ号> <玩家名>` 是根据你提供的 AQQBot 指令格式实现的；当群友发送 `/bind implayer` 时，平台自动把登记的 QQ 号和玩家名填入，并通过 RCON 发送。**群友不需要、也不应该在 QQ 里输入这条 RCON 命令。** AQQBot 不同版本的实际执行结果，需以终端返回及服务器状态为准。
-
-`/motd` 不调用 RCON，而是查询 Minecraft 服务器的游戏状态协议。RCON 终端仅管理员可用；它可以执行高权限服务器命令，切勿把后台暴露到公网。
-
-## 配置顺序
-
-1. 在 QQ 开放平台给机器人配置群消息能力及上表四个指令名；若页面自动显示 `/`，指令名只填文字部分。
-2. 在本平台“修改信息”填写 QQ Bot AppID、AppSecret；让机器人在目标群收到一条 @消息，到总览操作记录找到“群 OpenID”，再填入允许群列表。
-3. 填写并测试 RCON、Minecraft 游戏地址。用后台 RCON 终端发送 `list` 测试。
-4. 在目标群按“登记 → 确认 → 绑定 / 查询”的顺序测试。
-
-QQ 官方 SDK 的群消息与回复方式可参阅[腾讯官方 Node.js SDK 使用指南](https://github.com/tencent-connect/qqbot-nodejs/blob/main/USAGE.md)。
+管理员网页的 `/terminal` 是独立的手动 RCON 控制台，登录后可输入 `list` 等服务器命令；群友不能使用。旧 QQ 指令名称 `/qq`、`/mcb`、`/unbind`、`/register`、`/confirm`、`/bind`、`/logs`、`/chat` 均不再使用。

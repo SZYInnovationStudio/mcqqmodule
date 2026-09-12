@@ -143,6 +143,21 @@ test('RCON 未确认解绑时保留本地记录；其他 QQ 不能占用相同�
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('/mcunallbind 仅逐条发送按玩家解绑命令，失败时停止且不删除剩余记录', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    for (const player of ['player_one', 'player_two', 'player_three']) store.recordBinding('USER_OPENID_123', player, '已发送');
+    const calls = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return command.includes('player_two') ? '解绑失败' : '成功解绑'; }, send: async () => {} });
+    assert.match(await bridge.unbindAllPlayers('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunallbind'), /已停止/);
+    assert.deepEqual(calls, ['aqqbot whitelist unbind name player_one', 'aqqbot whitelist unbind name player_two']);
+    assert.deepEqual(store.getBindings('USER_OPENID_123').map(item => item.player), ['player_two', 'player_three']);
+    assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
@@ -152,7 +167,7 @@ test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async
     const calls = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '成功'; }, motd: async () => { calls.push('motd'); return {}; }, send: async (_event, reply) => replies.push(reply) });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
-    for (const command of ['/qqunbind', '/mcbind implayer', '/mcunbind implayer', '/motd']) {
+    for (const command of ['/qqunbind', '/mcbind implayer', '/mcunbind implayer', '/mcunallbind', '/motd']) {
       bridge.lastCommand.clear();
       await bridge.handleEvent({ ...event, messageId: command, content: command });
       assert.match(replies.at(-1), /\/qqbind/);
@@ -160,7 +175,7 @@ test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async
     assert.deepEqual(calls, []);
     bridge.lastCommand.clear();
     await bridge.handleEvent({ ...event, messageId: 'legacy', content: '/register 36000000' });
-    assert.equal(replies.length, 4);
+    assert.equal(replies.length, 5);
     await bridge.handleEvent({ ...event, messageId: 'qqbind', content: '/qqbind 36000000' });
     assert.match(replies.at(-1), /BIND-[A-F0-9]{6}/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
