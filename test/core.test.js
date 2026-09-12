@@ -10,7 +10,7 @@ import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
-import { applyAqqbotRelay, prepareRelayFiles, MC_TO_QQ_TEMPLATE, QQ_TO_MC_TEMPLATE } from '../src/aqqbot-relay.js';
+import { applyAqqbotRelay, prepareRelayFiles, readAqqbotRelay, MC_TO_QQ_TEMPLATE, QQ_TO_MC_TEMPLATE } from '../src/aqqbot-relay.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
@@ -72,11 +72,13 @@ test('更新真实 AQQBot 文件后重载；重载失败则恢复原文件', asy
     writeFileSync(aqqbotConfigPath, originalConfig);
     writeFileSync(aqqbotMessagesPath, originalMessages);
     const config = { aqqbotConfigPath, aqqbotMessagesPath, qqToMcEnabled: false, mcToQqEnabled: true };
+    assert.deepEqual(await readAqqbotRelay(config), { qqToMcEnabled: true, mcToQqEnabled: true });
     const commands = [];
     const result = await applyAqqbotRelay(config, async (_config, command) => { commands.push(command); return '插件配置重载成功!'; });
     assert.equal(result.changed, true);
     assert.deepEqual(commands, ['aqqbot reload']);
     assert.match(readFileSync(aqqbotConfigPath, 'utf8'), /group_to_server:\n    enable: false/);
+    assert.deepEqual(await readAqqbotRelay(config), { qqToMcEnabled: false, mcToQqEnabled: true });
     writeFileSync(aqqbotConfigPath, originalConfig);
     writeFileSync(aqqbotMessagesPath, originalMessages);
     await assert.rejects(applyAqqbotRelay(config, async () => { throw new Error('RCON 失败'); }), /已尝试恢复原文件/);

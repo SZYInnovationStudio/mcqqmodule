@@ -11,6 +11,22 @@ async function loadConfig() {
       element.checked = config[element.name] === true;
     } else element.value = config[element.name] ?? '';
   }
+  const mcSwitch = $('config-form').elements.mcToQqEnabled;
+  const qqSwitch = $('config-form').elements.qqToMcEnabled;
+  mcSwitch.disabled = qqSwitch.disabled = true;
+  if (!config.aqqbotConfigPath || !config.aqqbotMessagesPath) {
+    $('relay-actual-status').textContent = '尚未接入服务器实际文件；AQQBot 当前是否转发未知。';
+    return;
+  }
+  try {
+    const actual = await api('aqqbot/relay-state');
+    mcSwitch.checked = actual.mcToQqEnabled;
+    qqSwitch.checked = actual.qqToMcEnabled;
+    mcSwitch.disabled = qqSwitch.disabled = false;
+    $('relay-actual-status').textContent = `已读取 AQQBot 实际状态：MC → QQ ${actual.mcToQqEnabled ? '开启' : '关闭'}，QQ → MC ${actual.qqToMcEnabled ? '开启' : '关闭'}。`;
+  } catch (error) {
+    $('relay-actual-status').textContent = `无法读取 AQQBot 实际状态：${error.message}。开关暂不可操作。`;
+  }
 }
 
 $('config-form').addEventListener('submit', async event => {

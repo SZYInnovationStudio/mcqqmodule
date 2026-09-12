@@ -24,6 +24,41 @@ export function replaceYamlField(source, path, value) {
   return lines.join(newline);
 }
 
+export function readYamlField(source, path) {
+  const stack = [];
+  const values = [];
+  for (const line of source.split(/\r?\n/)) {
+    const match = line.match(/^( *)([A-Za-z_][A-Za-z0-9_-]*):(?:\s*(.*))?$/);
+    if (!match) continue;
+    const indent = match[1].length;
+    while (stack.length && stack.at(-1).indent >= indent) stack.pop();
+    stack.push({ indent, key: match[2] });
+    if (stack.map(item => item.key).join('.') === path.join('.')) values.push((match[3] ?? '').replace(/\s+#.*$/, '').trim());
+  }
+  if (values.length !== 1) throw new Error(`AQQBot 文件中 ${path.join('.')} 应恰好出现一次，实际 ${values.length} 次`);
+  return values[0];
+}
+
+export async function readAqqbotRelay(config) {
+  const configPath = config.aqqbotConfigPath;
+  const messagesPath = config.aqqbotMessagesPath;
+  if (!configPath || !messagesPath) throw new Error('请先填写服务器正在使用的 AQQBot 文件路径');
+  const [realConfig, realMessages] = await Promise.all([realpath(configPath), realpath(messagesPath)]);
+  if (dirname(realConfig) !== dirname(realMessages)) throw new Error('两个 AQQBot 文件必须位于同一个插件目录');
+  const [configText, messagesText] = await Promise.all([readFile(realConfig, 'utf8'), readFile(realMessages, 'utf8')]);
+  readYamlField(messagesText, ['qq', 'chat_from_game']);
+  readYamlField(messagesText, ['game', 'chat_from_qq']);
+  const parseFlag = path => {
+    const value = readYamlField(configText, path);
+    if (value !== 'true' && value !== 'false') throw new Error(`${path.join('.')} 不是 true/false`);
+    return value === 'true';
+  };
+  return {
+    qqToMcEnabled: parseFlag(['chat', 'group_to_server', 'enable']),
+    mcToQqEnabled: parseFlag(['chat', 'server_to_group', 'enable'])
+  };
+}
+
 export function prepareRelayFiles(configText, messagesText, { mcToQqEnabled, qqToMcEnabled }) {
   let nextConfig = replaceYamlField(configText, ['chat', 'group_to_server', 'enable'], String(qqToMcEnabled === true));
   nextConfig = replaceYamlField(nextConfig, ['chat', 'server_to_group', 'enable'], String(mcToQqEnabled === true));
@@ -71,8 +106,8 @@ export async function applyAqqbotRelay(config, rcon) {
       written.push(file);
     }
     const output = await rcon(config, 'aqqbot reload');
-    if (/(?:失败|错误|无效|不存在|unknown command|error|failed)/i.test(output)) throw new Error(`AQQBot 重载未成功：${output.slice(0, 300)}`);
-    return { changed: true, output: output || '已发送 aqqbot reload；服务器未返回文字' };
+    if (!/(?:重载完成|重载成功|reload(?:ed)? (?:successfully|complete))/i.test(output)) throw new Error(`AQQBot 未明确确认重载：${String(output).slice(0, 300) || '服务器无返回文字'}`);
+    return { changed: true, output };
   } catch (error) {
     for (const file of written.reverse()) await atomicReplace(file.path, file.original, file.mode).catch(() => {});
     if (written.length) await rcon(config, 'aqqbot reload').catch(() => {});
