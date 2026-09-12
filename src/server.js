@@ -23,16 +23,19 @@ const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const assets = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/settings': ['settings.html', 'text/html; charset=utf-8'],
+  '/terminal': ['terminal.html', 'text/html; charset=utf-8'],
   '/users': ['users.html', 'text/html; charset=utf-8'],
   '/guide': ['guide.html', 'text/html; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/account.css': ['account.css', 'text/css; charset=utf-8'],
   '/pages.css': ['pages.css', 'text/css; charset=utf-8'],
   '/users.css': ['users.css', 'text/css; charset=utf-8'],
+  '/terminal.css': ['terminal.css', 'text/css; charset=utf-8'],
   '/common.js': ['common.js', 'text/javascript; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/settings.js': ['settings.js', 'text/javascript; charset=utf-8'],
   '/users.js': ['users.js', 'text/javascript; charset=utf-8'],
+  '/terminal.js': ['terminal.js', 'text/javascript; charset=utf-8'],
   '/favicon.svg': ['favicon.svg', 'image/svg+xml']
 };
 
@@ -149,6 +152,15 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (path === '/api/audit' && req.method === 'GET') return json(res, 200, store.state.audit.slice(0, 50));
+    if (path === '/api/rcon/command' && req.method === 'POST') {
+      const input = await body(req);
+      if (typeof input.command !== 'string') return json(res, 400, { error: '命令格式无效' });
+      const command = input.command.trim();
+      if (!command || command.length > 512 || /[\r\n\0]/.test(command)) return json(res, 400, { error: '命令格式无效：只能发送一行，最多 512 个字符' });
+      const output = await rconCommand(store.config, command);
+      store.audit('rcon-terminal', '管理员从远程终端发送了一条 RCON 命令（内容未记录）');
+      return json(res, 200, { output });
+    }
     if (path === '/api/test/rcon' && req.method === 'POST') return json(res, 200, { output: await rconCommand(store.config, 'list') });
     if (path === '/api/test/motd' && req.method === 'POST') return json(res, 200, await queryMotd(store.config));
     return json(res, 404, { error: '未找到' });

@@ -78,6 +78,7 @@ export class Bridge {
     if (!allowed.includes(group) || !openid || !event.replyTarget) return;
     const message = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
+    const submittedCode = isCode ? message.toUpperCase() : message.match(/^\/confirm\s+(BIND-[A-F0-9]{6})\s*$/i)?.[1].toUpperCase();
     if (!/^\/(?:register|confirm|bind|motd)(?:\s|$)/i.test(message) && !isCode) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
@@ -85,14 +86,14 @@ export class Bridge {
       this.seen.set(key, Date.now());
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
     }
-    const ownCode = isCode && this.pending.get(openid)?.code === message.toUpperCase() && this.pending.get(openid)?.group === group;
+    const ownCode = submittedCode && this.pending.get(openid)?.code === submittedCode && this.pending.get(openid)?.group === group;
     const now = Date.now();
     if (!ownCode && (this.lastCommand.get(openid) ?? 0) + 1500 > now) return;
     this.lastCommand.set(openid, now);
     try {
       let reply;
       if (/^\/register(?:\s|$)/i.test(message)) reply = this.beginRegistration(openid, group, message);
-      else if (isCode || /^\/confirm(?:\s|$)/i.test(message)) reply = this.confirmRegistration(openid, group, message.replace(/^\/confirm\s*/i, '').toUpperCase());
+      else if (isCode || /^\/confirm(?:\s|$)/i.test(message)) reply = this.confirmRegistration(openid, group, submittedCode ?? '');
       else {
         const user = this.store.state.users[openid];
         if (!user?.qq) reply = '使用前请先登记：/register <你的QQ号>。机器人会回显号码，请核对后由本人发送确认码。';
@@ -116,7 +117,7 @@ export class Bridge {
     if (this.store.qqOwner(qq, openid)) return '这个 QQ 号已被登记，请联系管理员核对。';
     const pending = { group, qq, code: `BIND-${randomBytes(3).toString('hex').toUpperCase()}`, expires: Date.now() + CODE_TTL };
     this.pending.set(openid, pending);
-    return `请二次核对你填写的 QQ 号：${qq}\n如果正确，请由你本人在本群发送确认码：${pending.code}\n有效期：5 分钟。确认后自动登记，不需要管理员审核。注意：此步骤不验证 QQ 号归属，也不会绑定 MC 玩家。`;
+    return `请二次核对你填写的 QQ 号：${qq}\n如果正确，请由你本人在本群 @机器人发送：/confirm ${pending.code}\n有效期：5 分钟。确认后自动登记，不需要管理员审核。注意：此步骤不验证 QQ 号归属，也不会绑定 MC 玩家。`;
   }
 
   confirmRegistration(openid, group, code) {

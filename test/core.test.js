@@ -61,7 +61,7 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
     bridge.lastCommand.delete('USER_OPENID_123');
     await bridge.handleEvent({ ...event, messageId: '2', content: '/register 36000000' });
     const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, messageId: '3', content: code });
+    await bridge.handleEvent({ ...event, messageId: '3', content: `/confirm ${code}` });
     assert.ok(store.state.users.USER_OPENID_123);
     assert.equal(store.state.bindings.USER_OPENID_123, undefined);
     bridge.lastCommand.delete('USER_OPENID_123');
@@ -85,7 +85,7 @@ test('首次 /bind 先要求登记，确认之后才调用 RCON', async () => {
     bridge.lastCommand.delete('USER_OPENID_123');
     await bridge.handleEvent({ ...event, messageId: '12', content: '/register 36000000' });
     const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, messageId: '13', content: code });
+    await bridge.handleEvent({ ...event, messageId: '13', content: `/confirm ${code}` });
     assert.deepEqual(commands, []);
     bridge.lastCommand.delete('USER_OPENID_123');
     await bridge.handleEvent({ ...event, messageId: '14', content: '/bind implayer' });
