@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -10,6 +10,7 @@ import { Bridge } from './bridge.js';
 import { queryMotd } from './motd.js';
 import { rconCommand } from './rcon.js';
 import { fetchMcsmOutput, parseMcPlayerChat } from './mcsm.js';
+import { matchesPluginKey } from './plugin-chat.js';
 
 const HOST = '127.0.0.1';
 const PORT = 2556;
@@ -67,12 +68,7 @@ function authorized(req) {
 }
 
 function pluginAuthorized(req) {
-  const expected = store.config.pluginKey;
-  const actual = /^Bearer ([A-Za-z0-9_-]{32,128})$/.exec(String(req.headers.authorization ?? ''))?.[1];
-  if (!expected || !actual) return false;
-  const a = Buffer.from(actual);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return matchesPluginKey(req.headers.authorization, store.config.pluginKey);
 }
 
 function loginSession(res) {
@@ -149,6 +145,12 @@ const server = http.createServer(async (req, res) => {
       bridge.restart();
       return json(res, 200, publicConfig(next));
     }
+    if (path === '/api/test/plugin' && req.method === 'POST') return json(res, 200, {
+      mode: store.config.chatTransport === 'plugin' ? '插件' : 'RCON / MCSManager',
+      keySet: Boolean(store.config.pluginKey),
+      connected: store.config.chatTransport === 'plugin' && bridge.pluginExchange.lastSeen > Date.now() - 10000,
+      lastSeen: bridge.pluginExchange.lastSeen ? new Date(bridge.pluginExchange.lastSeen).toISOString() : null
+    });
     if (path === '/api/test/mcsm-output' && req.method === 'POST') {
       const output = await fetchMcsmOutput(store.config);
       const lines = output.split(/\r?\n/).slice(-18).map(line => line.slice(0, 250));

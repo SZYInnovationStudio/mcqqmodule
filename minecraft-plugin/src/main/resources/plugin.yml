@@ -1,0 +1,5 @@
+name: SZYDMCChatBridge
+version: '1.0.0'
+main: dev.szydmc.chatbridge.ChatBridgePlugin
+api-version: '1.21.11'
+description: Secure player chat bridge for the MC x QQ management platform.

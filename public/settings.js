@@ -2,6 +2,7 @@ import { $, api, message } from './common.js';
 
 async function loadConfig() {
   const config = await api('config');
+  $('plugin-key').type = 'password';
   for (const element of $('config-form').elements) {
     if (!element.name) continue;
     if (element.type === 'password') {
@@ -12,6 +13,18 @@ async function loadConfig() {
     } else element.value = config[element.name] ?? '';
   }
 }
+
+$('generate-plugin-key').addEventListener('click', async () => {
+  const key = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');
+  $('plugin-key').value = key;
+  try {
+    await navigator.clipboard.writeText(key);
+    $('plugin-key-message').textContent = 'Key 已复制。先粘贴到插件 config.yml 的 key，再保存本页信息。不要发到 QQ 群。';
+  } catch {
+    $('plugin-key').type = 'text';
+    $('plugin-key-message').textContent = '浏览器无法自动复制；请从上方输入框手动复制 Key，填到插件 config.yml 后保存本页。';
+  }
+});
 
 $('config-form').addEventListener('submit', async event => {
   event.preventDefault();

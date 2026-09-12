@@ -12,7 +12,7 @@ import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
 import { makeQqTellraw, parseNameMap } from '../src/qq-chat.js';
 import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
-import { PluginChatExchange } from '../src/plugin-chat.js';
+import { PluginChatExchange, matchesPluginKey } from '../src/plugin-chat.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
@@ -160,6 +160,23 @@ test('插件双向交换去重并等待确认，不依赖 MCSManager 或 RCON �
   assert.equal(next.chatTransport, 'plugin');
   assert.equal(publicConfig(next).pluginKey, undefined);
   assert.equal(publicConfig(next).pluginKeySet, true);
+  assert.equal(matchesPluginKey(`Bearer ${next.pluginKey}`, next.pluginKey), true);
+  assert.equal(matchesPluginKey('Bearer wrong-key', next.pluginKey), false);
+});
+
+test('插件模式 QQ → MC 排队给插件，不调用 RCON', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123', qqToMcEnabled: true, chatTransport: 'plugin' };
+    const commands = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => commands.push(command) });
+    await bridge.handleEvent({ kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: 'Alice', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, content: '你好' });
+    assert.deepEqual(commands, []);
+    const received = bridge.exchangePluginChat({ ack: 0, sent: [] }).receive;
+    assert.equal(received.length, 1);
+    assert.deepEqual(received[0].components, [{ text: '[QQ群]', color: 'green' }, { text: ' Alice：你好' }]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('配置密钥加密保存且读取时不回传', () => {

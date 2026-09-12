@@ -4,3 +4,4 @@ node_modules/
 .sites-runtime/
 coverage/
 dist/
+minecraft-plugin/target/
