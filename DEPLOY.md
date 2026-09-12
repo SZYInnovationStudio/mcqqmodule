@@ -1,6 +1,6 @@
 # 上传到 Linux 服务器长期运行
 
-`mc-qq-bridge-full-private-2026-09-13.zip` 是**完整私有迁移包**：包含程序、网页、`data/` 内的管理员账户与加密配置、`master.key`、日志、现有 `node_modules`，以及独立聊天插件 JAR。包内 `minecraft-plugin/server-config/config.yml` 已预填与后台一致的插件 Key。它不包含 Git 历史或旧压缩包。请只通过私密渠道上传，不要公开分享或提交到 Git。下面以有 SSH 权限的 Linux 服务器为例。
+`mc-qq-bridge-full-private-2026-09-13-player-presence.zip` 是**完整私有迁移包**：包含程序、网页、`data/` 内的管理员账户与加密配置、`master.key`、日志、现有 `node_modules`，以及独立聊天插件 JAR。包内 `minecraft-plugin/server-config/config.yml` 已预填与后台一致的插件 Key。它不包含 Git 历史或旧压缩包。请只通过私密渠道上传，不要公开分享或提交到 Git。下面以有 SSH 权限的 Linux 服务器为例。
 
 ## 1. 上传并安装
 
@@ -11,11 +11,11 @@ node -v
 npm -v
 ```
 
-把 `mc-qq-bridge-full-private-2026-09-13.zip` 上传到服务器的用户目录，然后执行：
+把 `mc-qq-bridge-full-private-2026-09-13-player-presence.zip` 上传到服务器的用户目录，然后执行：
 
 ```sh
 mkdir -p "$HOME/mc-qq-bridge"
-unzip mc-qq-bridge-full-private-2026-09-13.zip -d "$HOME/mc-qq-bridge"
+unzip mc-qq-bridge-full-private-2026-09-13-player-presence.zip -d "$HOME/mc-qq-bridge"
 cd "$HOME/mc-qq-bridge"
 npm ci --omit=dev
 npm test
@@ -75,6 +75,8 @@ ssh -N -L 127.0.0.1:2556:127.0.0.1:2556 your_login_user@your_server_address
 6. 聊天互通在「修改信息」中分别开启：QQ → MC 用 RCON；MC → QQ 需额外填写 MCSManager 面板地址、API Key、Daemon ID、Instance UUID，先测试 MC 控制台能显示玩家聊天。若 AQQBot 自身也在转发聊天，请服主自行关闭重复的方向；本平台不会修改插件配置文件。
 
 当前聊天已配置为独立插件模式。把包内 `minecraft-plugin/target/szydmc-chat-bridge-1.0.0.jar` 放进 MC 服务端的 `plugins/`，把 `minecraft-plugin/server-config/config.yml` 放进 MC 服务端的 `plugins/SZYDMCChatBridge/`，然后重启 MC。第二个文件已预填插件 Key，不必再手抄；不要把它公开。插件默认连接同一台机器上的 `127.0.0.1:2556`；若 MC 和后台在不同机器或不同容器内，必须先设置可达的安全隧道或 HTTPS 反向代理，并修改插件配置的 `bridge-url`。网页里点“测试插件连接”确认连通。插件不会替换当前 AQQBot 白名单，也不会同步其旧绑定文件。
+
+本版插件还会把玩家进服、退服推送到允许的 QQ 群，并附上事件发生时的在线人数和名单，例如 `在线玩家（1）：Alice`。这些播报跟随网页的 **MC → QQ** 开关；不包含 QQ 入群／退群播报。要让新功能生效，后台程序与 MC 插件 JAR 都必须替换为本包内版本，并分别重启。
 
 这些连接信息**已经在完整私有压缩包的 `data/` 中**。部署完成后，删除服务器上传目录里多余的私有 ZIP 副本，并**单独、安全地备份服务器上的整个 `data/` 目录**，尤其是 `master.key`：丢失它就无法解密已有配置和日志。不要把完整包或 `data/` 放进公开网盘或 Git 仓库。
 

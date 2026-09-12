@@ -2,7 +2,7 @@
 
 本地运行的 Minecraft RCON / QQ 官方 Bot 桥接服务。管理网页固定在 `127.0.0.1:2556`，不对公网开放。服务器配置和 QQ Bot 配置由管理网页填写；密钥加密存放在被 Git 忽略的 `data/` 目录。
 
-现在也提供独立的 [Paper / Purpur 聊天插件](minecraft-plugin/README.md)：装好 JAR、配置同一把插件 Key 后，QQ → MC 和 MC → QQ 可全部改走插件，不再依赖 MCSManager API 或 RCON **读取/发送聊天**。现有 QQ 登记、AQQBot 白名单绑定和管理员终端仍按原方式运行；未来替换 AQQBot、同步旧白名单不属于这一版。未安装插件前后台默认保留原有聊天方式。
+现在也提供独立的 [Paper / Purpur 聊天插件](minecraft-plugin/README.md)：装好 JAR、配置同一把插件 Key 后，QQ → MC 和 MC → QQ 可全部改走插件，不再依赖 MCSManager API 或 RCON **读取/发送聊天**。插件还能在玩家进出服时向 QQ 群播报，并附上当时的在线人数和名单，受 MC → QQ 开关控制。现有 QQ 登记、AQQBot 白名单绑定和管理员终端仍按原方式运行；未来替换 AQQBot、同步旧白名单不属于这一版。未安装插件前后台默认保留原有聊天方式。
 
 要上传到远程 Linux 服务器长期运行，请从 [DEPLOY.md](DEPLOY.md) 开始。完整私有迁移包包含本机 `data/` 和密钥，只能私密保存、传输；不要公开分享。
 

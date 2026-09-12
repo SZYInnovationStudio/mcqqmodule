@@ -1,6 +1,6 @@
 # SZYDMCChatBridge 独立聊天插件
 
-适用于 Paper / Purpur 1.21.11（Java 21）。只负责 QQ ↔ MC 聊天，不改 AQQBot 白名单、不执行控制台命令、不读取 MCSManager，也不修改 `server.properties`。
+适用于 Paper / Purpur 1.21.11（Java 21）。负责 QQ ↔ MC 聊天及 MC 玩家进服／退服播报，不改 AQQBot 白名单、不执行控制台命令、不读取 MCSManager，也不修改 `server.properties`。
 
 ## 安装
 
@@ -11,6 +11,8 @@
 5. 请服主自行关闭 AQQBot **自身的聊天转发**，否则可能出现重复消息；保留 AQQBot 的白名单功能。不要修改其白名单文件。
 
 插件每秒主动向平台的 `/api/plugin/exchange` 发一次带 `Authorization: Bearer <Key>` 的请求；MC 不额外开放端口。Key 在网页程序中加密保存，在 MC 插件配置里由服主保管。消息有去重和确认，短暂断线会重试；进程重启前尚未确认的聊天不保证恢复。
+
+玩家进出服时，插件会记录当时的在线名单；网页 **MC → QQ** 开关开启且 QQ Bot 在线时，向允许的群发送 `[服务器] Alice 进入了服务器` 或 `[服务器] Alice 离开了服务器`，下一行显示 `在线玩家（人数）：名单`。此功能不包含 QQ 群成员进退群事件。
 
 ## 自行编译
 
