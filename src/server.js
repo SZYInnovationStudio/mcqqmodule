@@ -21,7 +21,18 @@ bridge.start();
 const sessions = new Map();
 const attempts = new Map();
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'], '/account.css': ['account.css', 'text/css; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
+const assets = {
+  '/': ['index.html', 'text/html; charset=utf-8'],
+  '/settings': ['settings.html', 'text/html; charset=utf-8'],
+  '/guide': ['guide.html', 'text/html; charset=utf-8'],
+  '/app.css': ['app.css', 'text/css; charset=utf-8'],
+  '/account.css': ['account.css', 'text/css; charset=utf-8'],
+  '/pages.css': ['pages.css', 'text/css; charset=utf-8'],
+  '/common.js': ['common.js', 'text/javascript; charset=utf-8'],
+  '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  '/settings.js': ['settings.js', 'text/javascript; charset=utf-8'],
+  '/favicon.svg': ['favicon.svg', 'image/svg+xml']
+};
 
 function json(res, status, value) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });

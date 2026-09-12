@@ -77,6 +77,27 @@ test('未登记时任何功能命令只发登记码，登记后才能查询', as
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('首次 /bind 只取得登记码，再发 /bind 玩家名才调用 RCON', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: '12345678' };
+    const replies = [];
+    const commands = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return 'ok'; }, send: async (_event, text) => replies.push(text) });
+    const event = { post_type: 'message', message_type: 'group', group_id: 12345678, user_id: 36000000 };
+    await bridge.handleEvent({ ...event, message_id: 11, raw_message: '/bind implayer' });
+    assert.deepEqual(commands, []);
+    assert.equal(store.state.bindings['36000000'], undefined);
+    const code = replies[0].match(/BIND-[A-F0-9]{6}/)[0];
+    await bridge.handleEvent({ ...event, message_id: 12, raw_message: code });
+    assert.deepEqual(commands, []);
+    bridge.lastCommand.delete('36000000');
+    await bridge.handleEvent({ ...event, message_id: 13, raw_message: '/bind implayer' });
+    assert.deepEqual(commands, ['aqqbot whitelist bind 36000000 implayer']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('MCSManager 请求包含实例标识与官方要求的请求头', async () => {
   let captured;
   const client = new McsmClient({ mcsmUrl: 'http://panel.test', mcsmApiKey: 'key', daemonId: 'daemon', instanceId: 'instance' }, async (url, options) => {

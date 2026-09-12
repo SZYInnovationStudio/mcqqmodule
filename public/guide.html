@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c"><title>使用教程 · MC × QQ</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"></head>
+<body><main class="shell">
+  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a class="active" aria-current="page" href="/guide">使用教程</a></nav><span class="local-tag">本机 · 2556</span></header>
+  <div class="page-intro"><div><div class="eyebrow">使用教程</div><h1>按顺序做，就能用</h1><p>先让平台连上 MC 和 QQ，再让群友登记 QQ 号，最后绑定玩家。</p></div><a class="primary link-button" href="/settings">去修改信息</a></div>
+  <div class="guide-list">
+    <section class="panel guide-step"><span class="step-number">01</span><div><h2>准备 MC 服务器</h2><p>记下玩家连接服务器用的地址和游戏端口（通常是 25565）。在服务器的 <code>server.properties</code> 里开启 RCON，并设置端口和密码，保存后重启 MC 服务器。</p><pre>enable-rcon=true
+rcon.port=25575
+rcon.password=你自己设置的强密码</pre><p>RCON 用来发送真正的 AQQBot 绑定命令；不要把 RCON 端口直接开放到公网。</p></div></section>
+    <section class="panel guide-step"><span class="step-number">02</span><div><h2>准备 MCSManager 面板</h2><p>在面板里生成 API Key，找出目标服务器的 Daemon ID（节点 ID）和实例 UUID（服务器 ID）。平台用它读取控制台日志，供 <code>/logs</code> 查询；不靠它发送绑定命令。</p><p>不会找 ID 时，可以向面板管理员索取。API Key 权限跟创建它的面板账户有关，别发给群友。</p></div></section>
+    <section class="panel guide-step"><span class="step-number">03</span><div><h2>准备 QQ 机器人</h2><p>让 QQ 机器人提供 OneBot v11 的正向 WebSocket 连接，把地址填到「修改信息」。如果设置了 Access Token，也填进去。再填允许使用的 QQ 群号；没填群号时，群命令不会生效。</p><p>MC 服务器里的 AQQBot 插件仍要保持正常安装。若它也响应 QQ 群里的 <code>/bind</code>，需要避免两个功能同时处理同一条命令。</p></div></section>
+    <section class="panel guide-step"><span class="step-number">04</span><div><h2>保存并测试</h2><p>打开「修改信息」，按 1～4 块填完，点「保存信息」。依次点「测试 RCON」「测试面板」「测试 MOTD」。回到总览可看 QQ 机器人是否显示“已连接”。</p><a class="secondary link-button" href="/settings">打开修改信息</a></div></section>
+    <section class="panel guide-step"><span class="step-number">05</span><div><h2>群友先登记 QQ 号</h2><p>群友第一次发 <code>/bind implayer</code>、<code>/motd</code> 或 <code>/logs</code> 时，机器人先给出 <code>BIND-XXXXXX</code> 登记码。群友本人在同一个群发送这个码，5 分钟内有效。</p><div class="callout"><strong>注意：这一步只从 QQ 消息中取得并登记 QQ 号。</strong><span>发送登记码不会绑定 MC 玩家，也不会执行 RCON 命令。</span></div></div></section>
+    <section class="panel guide-step"><span class="step-number">06</span><div><h2>再绑定 MC 玩家</h2><p>登记成功后，群友再发 <code>/bind implayer</code>。其中 <code>implayer</code> 是群友自己填写的 Minecraft 玩家名。平台从 QQ 消息取得 QQ 号，再通过 RCON 执行：</p><pre>aqqbot whitelist bind &lt;发送者QQ号&gt; implayer</pre><p>这一步才是真正的玩家绑定。执行回执会回复到群里；最终状态以 AQQBot/服务器反馈为准。</p></div></section>
+    <section class="panel guide-step"><span class="step-number">07</span><div><h2>查询服务器</h2><p><code>/motd</code> 查询服务器介绍和在线人数；<code>/logs</code> 查询最近 2 分钟的玩家聊天。日志必须存在于 MCSManager 控制台输出里且带时间戳，否则会提示没有可识别消息。</p></div></section>
+  </div>
+</main></body></html>

@@ -4,61 +4,44 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#101a2c">
-  <title>MC × QQ 管理后台</title>
+  <title>总览 · MC × QQ</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/app.css">
-  <link rel="stylesheet" href="/account.css">
-  <script defer src="/app.js"></script>
+  <link rel="stylesheet" href="/pages.css">
+  <script type="module" src="/app.js"></script>
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div>
-      <div class="top-actions"><span class="local-tag">本机 · 2556</span><span id="current-user" class="local-tag" hidden></span><button id="logout" class="ghost" hidden>退出登录</button></div>
+      <nav id="main-nav" class="nav" aria-label="主导航" hidden><a class="active" aria-current="page" href="/">总览</a><a href="/settings">修改信息</a><a href="/guide">使用教程</a></nav>
+      <div class="top-actions"><span id="current-user" class="local-tag" hidden></span><button id="logout" class="ghost" hidden>退出</button></div>
     </header>
 
     <section id="setup-view" class="login-card" hidden>
-      <div class="eyebrow">首次使用</div>
-      <h1>设置管理员账户</h1>
-      <p>创建用于登录此管理后台的用户名和密码。设置后无需在启动时输入密码。</p>
-      <form id="setup-form"><label for="setup-username">用户名</label><input id="setup-username" name="username" autocomplete="username" required minlength="3" maxlength="32"><label for="setup-password">密码（至少 6 位，包含字母和数字）</label><input id="setup-password" name="password" type="password" autocomplete="new-password" required minlength="6" pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,256}" title="至少 6 位，只能使用字母和数字，且必须同时包含两者"><label for="setup-confirm">确认密码</label><input id="setup-confirm" type="password" autocomplete="new-password" required minlength="6"><button type="submit" class="primary">创建账户并进入</button></form>
+      <div class="eyebrow">首次使用</div><h1>设置管理员账户</h1><p>先设置登录这个后台的用户名和密码。</p>
+      <form id="setup-form"><label for="setup-username">用户名</label><input id="setup-username" name="username" autocomplete="username" required minlength="3" maxlength="32"><label for="setup-password">密码（至少 6 位，包含字母和数字）</label><input id="setup-password" name="password" type="password" autocomplete="new-password" required minlength="6" pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,256}" title="至少 6 位，只能使用字母和数字，且必须同时包含两者"><label for="setup-confirm">再输入一次密码</label><input id="setup-confirm" type="password" autocomplete="new-password" required minlength="6"><button type="submit" class="primary">创建账户</button></form>
       <p id="setup-message" class="message" role="status"></p>
     </section>
 
     <section id="login-view" class="login-card" hidden>
-      <div class="eyebrow">管理员验证</div>
-      <h1>登录管理后台</h1>
-      <p>输入首次使用时设置的用户名和密码。</p>
+      <div class="eyebrow">管理员登录</div><h1>欢迎回来</h1><p>登录后查看连接情况，也可以修改信息。</p>
       <form id="login-form"><label for="username">用户名</label><input id="username" autocomplete="username" required><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required><button type="submit" class="primary">登录</button></form>
       <p id="login-message" class="message" role="status"></p>
+      <a class="help-link" href="/guide">第一次使用？先看教程</a>
     </section>
 
     <div id="dashboard" hidden>
-      <div class="page-intro"><div><div class="eyebrow">控制台</div><h1>连接与运行状态</h1><p>配置一次连接，QQ 群内即可使用绑定、MOTD 与近两分钟消息查询。</p></div><button id="refresh" class="secondary">刷新状态</button></div>
+      <div class="page-intro"><div><div class="eyebrow">总览</div><h1>现在运行得怎么样？</h1><p>这里看连接状态。要填写或修改资料，请到「修改信息」。</p></div><button id="refresh" class="secondary">刷新状态</button></div>
+      <section class="next-card" aria-live="polite"><div><span class="eyebrow">下一步</span><h2 id="next-title">正在检查…</h2><p id="next-description">请稍候。</p></div><a id="next-link" class="primary link-button" href="/settings">修改信息</a></section>
       <div class="status-grid">
-        <div class="status-card"><span>QQ Bot</span><strong id="bot-status">—</strong><small>OneBot v11 正向 WebSocket</small></div>
-        <div class="status-card"><span>RCON</span><strong id="rcon-status">—</strong><small>执行 AQQBot 绑定指令</small></div>
-        <div class="status-card"><span>MCSManager</span><strong id="mcsm-status">—</strong><small>读取服务器控制台日志</small></div>
-        <div class="status-card"><span>已登记 QQ / 绑定记录</span><strong id="counts">—</strong><small>首次使用命令自动登记</small></div>
+        <div class="status-card"><span>QQ 机器人</span><strong id="bot-status">—</strong><small>接收群里的命令</small></div>
+        <div class="status-card"><span>游戏命令连接</span><strong id="rcon-status">—</strong><small>用于绑定玩家</small></div>
+        <div class="status-card"><span>面板日志连接</span><strong id="mcsm-status">—</strong><small>用于查最近消息</small></div>
+        <div class="status-card"><span>已登记 QQ / 玩家绑定</span><strong id="counts">—</strong><small>两个步骤分开统计</small></div>
       </div>
-
-      <div class="content-grid">
-        <section class="panel config-panel"><div class="panel-head"><div><div class="eyebrow">连接配置</div><h2>服务接入</h2></div><span class="chip">密钥加密保存</span></div>
-          <form id="config-form">
-            <fieldset><legend>RCON · 命令执行</legend><div class="fields two"><label>RCON 主机<input name="rconHost" placeholder="127.0.0.1" autocomplete="off"></label><label>RCON 端口<input name="rconPort" type="number" min="1" max="65535" placeholder="25575"></label><label class="wide">RCON 密码<input name="rconPassword" type="password" placeholder="留空则保持原密码" autocomplete="new-password"></label></div></fieldset>
-            <fieldset><legend>MCSManager · 日志获取</legend><div class="fields two"><label class="wide">面板 URL<input name="mcsmUrl" type="url" placeholder="https://panel.example.com"></label><label class="wide">API Key<input name="mcsmApiKey" type="password" placeholder="留空则保持原密钥" autocomplete="new-password"></label><label>Daemon ID<input name="daemonId" autocomplete="off"></label><label>实例 UUID<input name="instanceId" autocomplete="off"></label></div></fieldset>
-            <fieldset><legend>Minecraft · MOTD 查询</legend><div class="fields two"><label>服务器主机<input name="mcHost" placeholder="mc.example.com" autocomplete="off"></label><label>游戏端口<input name="mcPort" type="number" min="1" max="65535" placeholder="25565"></label></div></fieldset>
-            <fieldset><legend>QQ Bot · OneBot v11</legend><div class="fields two"><label class="wide">正向 WebSocket 地址<input name="onebotWsUrl" placeholder="ws://127.0.0.1:3001/" autocomplete="off"></label><label class="wide">Access Token<input name="onebotToken" type="password" placeholder="留空则保持原 Token" autocomplete="new-password"></label><label class="wide">允许的 QQ 群号<input name="allowedGroups" placeholder="多个群号用逗号分隔" autocomplete="off"></label></div></fieldset>
-            <div class="form-footer"><p>只处理允许群内的 <code>/bind 玩家名</code>、<code>/motd</code>、<code>/logs</code>。</p><button type="submit" class="primary">保存配置</button></div>
-          </form><p id="config-message" class="message" role="status"></p>
-        </section>
-        <div class="side-stack">
-          <section class="panel"><div class="panel-head"><div><div class="eyebrow">连接诊断</div><h2>测试接入</h2></div></div><p>先保存配置，再分别测试。RCON 测试仅执行只读的 <code>list</code> 命令。</p><div class="test-buttons"><button data-test="rcon" class="secondary">测试 RCON</button><button data-test="mcsm" class="secondary">测试面板</button><button data-test="motd" class="secondary">测试 MOTD</button></div><pre id="test-output" class="result" role="status">等待测试…</pre></section>
-          <section class="panel"><div class="panel-head"><div><div class="eyebrow">管理员账户</div><h2>修改用户名或密码</h2></div></div><form id="account-form" class="stacked-form"><label>新用户名<input name="username" id="account-username" autocomplete="username" required minlength="3" maxlength="32"></label><label>当前密码<input name="currentPassword" type="password" autocomplete="current-password" required></label><label>新密码（留空则不修改；至少 6 位字母和数字）<input name="newPassword" type="password" autocomplete="new-password" minlength="6" pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,256}" title="至少 6 位，只能使用字母和数字，且必须同时包含两者"></label><button type="submit" class="secondary">保存账户修改</button></form><p id="account-message" class="message" role="status"></p></section>
-          <section class="panel"><div class="panel-head"><div><div class="eyebrow">QQ 指令</div><h2>使用流程</h2></div></div><ol class="steps"><li><code>/bind implayer</code><span>自动登记 QQ 号，获得 5 分钟绑定码</span></li><li><code>BIND-XXXXXX</code><span>本人在同一群发送，RCON 执行插件绑定指令</span></li><li><code>/motd</code> / <code>/logs</code><span>查询 MOTD 或近 2 分钟玩家消息</span></li></ol></section>
-        </div>
-      </div>
-      <div class="bottom-grid"><section class="panel"><div class="panel-head"><div><div class="eyebrow">绑定</div><h2>绑定记录</h2></div></div><div id="bindings" class="records empty">暂无绑定记录</div></section><section class="panel"><div class="panel-head"><div><div class="eyebrow">审计</div><h2>最近操作</h2></div></div><div id="audit" class="records empty">暂无操作记录</div></section></div>
+      <div class="quick-grid"><a class="quick-card" href="/settings"><strong>修改信息</strong><span>填写服务器、面板、QQ 机器人地址和密钥</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/guide"><strong>使用教程</strong><span>按顺序设置，再到 QQ 群里登记和绑定</span><b aria-hidden="true">→</b></a></div>
+      <div class="bottom-grid"><section class="panel"><div class="panel-head"><div><div class="eyebrow">玩家绑定</div><h2>最近记录</h2></div></div><div id="bindings" class="records empty">暂无绑定记录</div></section><section class="panel"><div class="panel-head"><div><div class="eyebrow">操作记录</div><h2>最近发生</h2></div></div><div id="audit" class="records empty">暂无操作记录</div></section></div>
     </div>
   </main>
 </body>

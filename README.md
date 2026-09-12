@@ -14,6 +14,8 @@ npm start
 
 随后填写 RCON 主机、端口和密码；MCSManager URL、API Key、Daemon ID、实例 UUID；Minecraft 主机/游戏端口；OneBot v11 正向 WebSocket 地址、Token 和允许使用的 QQ 群号。请不要把管理网页、`data/`、密码或 API Key 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
 
+页面分为三个入口：`/` 总览，只看状态和下一步；`/settings` 修改连接信息和管理员账户；`/guide` 按顺序操作的使用教程。已保存的连接信息不会因页面调整被清除。
+
 MC 服务端的 `server.properties` 需要配置 `enable-rcon=true`、`rcon.port` 和 `rcon.password`，重启服务器后才会生效。RCON 端口尽量只允许本平台所在主机访问；远程连接建议使用专用内网或隧道，不要把明文 RCON 暴露到公网。面板 URL 建议使用 HTTPS。
 
 QQ 群内命令：`/bind <玩家名>`、`/motd`、`/logs`。首次发送任意功能命令时，机器人先返回 `BIND-XXXXXX` 登记码；本人在原群发送该码后，系统从 OneBot 消息事件获取并登记 QQ 号。**登记码只确认 QQ 号，不执行玩家绑定。**登记完成后，用户再发 `/bind <自己填写的玩家名>`，此时才通过 RCON 执行 `aqqbot whitelist bind <QQ号> <玩家名>`。RCON 输出会显示在回复中，但真实绑定结果仍以 AQQBot/服务器状态为准。`/logs` 读取 MCSManager 的控制台输出缓冲区，仅能查询缓冲区内有时间戳的玩家聊天消息，最多显示最近 20 条。
