@@ -148,11 +148,13 @@ test('插件双向交换去重并等待确认，不依赖 MCSManager 或 RCON �
   const exchange = new PluginChatExchange(chat => received.push(chat));
   exchange.enqueue([{ text: '[QQ群]', color: 'green' }, { text: ' Alice：你好' }]);
   const incoming = { ack: 0, sent: [{ id: 'run12345-1', player: 'Steve', message: 'hello' }] };
-  assert.equal(exchange.exchange(incoming).receive.length, 1);
+  const first = exchange.exchange(incoming);
+  assert.equal(first.receive.length, 1);
+  assert.ok(first.epoch);
   assert.equal(exchange.exchange(incoming).receive.length, 1);
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(received, [{ player: 'Steve', content: 'hello' }]);
-  assert.deepEqual(exchange.exchange({ ack: 1, sent: [] }).receive, []);
+  assert.deepEqual(exchange.exchange({ ack: 1, epoch: first.epoch, sent: [] }).receive, []);
   assert.throws(() => exchange.exchange({ ack: 1, sent: [{ id: 'bad', player: 'Steve', message: 'x' }] }), /格式/);
   const next = validateConfig({ chatTransport: 'plugin', pluginKey: 'A'.repeat(40), qqToMcEnabled: true, mcToQqEnabled: true, qqAppId: '12345678', qqAppSecret: 'secret', allowedGroups: 'GROUP_OPENID_123' });
   assert.equal(next.chatTransport, 'plugin');
