@@ -74,6 +74,8 @@ ssh -N -L 127.0.0.1:2556:127.0.0.1:2556 your_login_user@your_server_address
 5. 管理员可在「玩家日志」查看分类记录，在「RCON 终端」手动发令并查看管理员执行日志。
 6. 聊天互通在「修改信息」中分别开启：QQ → MC 用 RCON；MC → QQ 需额外填写 MCSManager 面板地址、API Key、Daemon ID、Instance UUID，先测试 MC 控制台能显示玩家聊天。若 AQQBot 自身也在转发聊天，请服主自行关闭重复的方向；本平台不会修改插件配置文件。
 
+如果要让双向聊天都走独立插件，按照 [minecraft-plugin/README.md](minecraft-plugin/README.md) 安装 JAR、设置共享 Key，然后在网页切换聊天接入方式。插件默认连接同一台机器上的 `127.0.0.1:2556`；分开部署必须先建立安全隧道或 HTTPS 反向代理。插件不会替换当前 AQQBot 白名单，也不会同步其旧绑定文件。
+
 这些连接信息**已经在完整私有压缩包的 `data/` 中**。部署完成后，删除服务器上传目录里多余的私有 ZIP 副本，并**单独、安全地备份服务器上的整个 `data/` 目录**，尤其是 `master.key`：丢失它就无法解密已有配置和日志。不要把完整包或 `data/` 放进公开网盘或 Git 仓库。
 
 ## 更新程序

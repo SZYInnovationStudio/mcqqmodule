@@ -23,6 +23,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -57,7 +58,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         String url = getConfig().getString("bridge-url", "");
         try {
             endpoint = URI.create(url);
-            boolean loopback = "127.0.0.1".equals(endpoint.getHost()) || "localhost".equalsIgnoreCase(endpoint.getHost()) || "::1".equals(endpoint.getHost());
+            boolean loopback = "127.0.0.1".equals(endpoint.getHost());
             if (!("https".equals(endpoint.getScheme()) || ("http".equals(endpoint.getScheme()) && loopback)) || !"/api/plugin/exchange".equals(endpoint.getPath())) throw new IllegalArgumentException("远程地址必须使用 HTTPS；本机可用 HTTP 127.0.0.1");
             if (!key.matches("[A-Za-z0-9_-]{32,128}")) throw new IllegalArgumentException("请在 plugins/SZYDMCChatBridge/config.yml 填写至少 32 位的插件 Key");
         } catch (IllegalArgumentException error) {
@@ -74,7 +75,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         if (task != null) task.cancel();
     }
 
-    @EventHandler(ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerChat(AsyncChatEvent event) {
         String player = event.getPlayer().getName();
         String message = PlainTextComponentSerializer.plainText().serialize(event.message()).trim();
