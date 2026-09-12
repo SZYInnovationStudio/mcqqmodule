@@ -3,6 +3,9 @@ import { QQBot, messageFilter } from '@tencent-connect/qqbot-nodejs';
 import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
 import { parseOnlineList } from './chat-relay.js';
+import { makeQqTellraw } from './qq-chat.js';
+import { McsmOutputRelay, formatMcToQq } from './mcsm.js';
+import { DEFAULT_QQ_TO_MC_TEMPLATE, DEFAULT_MC_TO_QQ_TEMPLATE } from './config.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -18,6 +21,7 @@ export class Bridge {
     this.rcon = deps.rcon ?? rconCommand;
     this.motd = deps.motd ?? queryMotd;
     this.createBot = deps.createBot ?? (options => new QQBot(options));
+    this.createOutputRelay = deps.createOutputRelay ?? ((config, onChat, onError) => new McsmOutputRelay(config, onChat, onError));
     this.send = deps.send ?? ((event, message) => this.sendReply(event, message));
     this.pending = new Map();
     this.seen = new Map();
@@ -25,13 +29,27 @@ export class Bridge {
     this.discoveredGroups = new Set();
     this.status = '未连接';
     this.bot = null;
+    this.outputRelay = null;
     this.stopped = false;
   }
 
-  start() { this.stopped = false; this.connect(); }
+  start() {
+    this.stopped = false;
+    this.connect();
+    if (this.store.config.mcToQqEnabled === true) {
+      this.outputRelay = this.createOutputRelay(
+        this.store.config,
+        chat => this.sendMcChatToQq(chat),
+        error => this.store.audit('mcsm-relay-error', error.message)
+      );
+      this.outputRelay.start();
+    }
+  }
 
   stop() {
     this.stopped = true;
+    this.outputRelay?.stop();
+    this.outputRelay = null;
     this.bot?.stop();
     this.bot = null;
     this.status = '未连接';
@@ -73,6 +91,15 @@ export class Bridge {
     await this.bot.sendText(event.replyTarget, message);
   }
 
+  async sendMcChatToQq(chat) {
+    if (this.stopped || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
+    const content = formatMcToQq(this.store.config.mcToQqTemplate || DEFAULT_MC_TO_QQ_TEMPLATE, chat);
+    for (const targetId of this.store.config.allowedGroups?.split(',').filter(Boolean) ?? []) {
+      try { await this.bot.sendText({ scope: 'group', targetId }, content); }
+      catch (error) { this.store.audit('mc-to-qq-error', `群 ${targetId}：${error.message}`); }
+    }
+  }
+
   async handleEvent(event) {
     if (event.kind !== 'group' || event.senderIsBot === true || event.raw?.author?.bot === true) return;
     const openid = String(event.senderId ?? '');
@@ -87,12 +114,21 @@ export class Bridge {
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
     const isCommand = /^\/(?:qqbind|qqunbind|mcbind|mcunbind|mcunallbind|motd|list)(?:\s|$)/i.test(message);
-    if (!isCommand && !isCode) return;
+    const isChat = !isCommand && !isCode && message && !message.startsWith('/');
+    if (!isCommand && !isCode && !(isChat && this.store.config.qqToMcEnabled === true)) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
       if (this.seen.has(key)) return;
       this.seen.set(key, Date.now());
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
+    }
+    if (isChat) {
+      try {
+        const userName = event.senderName || this.store.state.users[openid]?.qq || '群友';
+        const command = makeQqTellraw(this.store.config.qqToMcTemplate || DEFAULT_QQ_TO_MC_TEMPLATE, { userName, message, groupId: group });
+        if (command) await this.rcon(this.store.config, command);
+      } catch (error) { this.store.audit('qq-to-mc-error', `群 ${group}：${error.message}`); }
+      return;
     }
     const ownCode = submittedCode && this.pending.get(openid)?.code === submittedCode && this.pending.get(openid)?.group === group;
     const now = Date.now();

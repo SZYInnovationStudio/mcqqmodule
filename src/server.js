@@ -9,7 +9,7 @@ import { validateConfig, publicConfig } from './config.js';
 import { Bridge } from './bridge.js';
 import { queryMotd } from './motd.js';
 import { rconCommand } from './rcon.js';
-import { applyAqqbotRelay, readAqqbotRelay } from './aqqbot-relay.js';
+import { fetchMcsmOutput, parseMcPlayerChat } from './mcsm.js';
 
 const HOST = '127.0.0.1';
 const PORT = 2556;
@@ -129,24 +129,17 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, username: accounts.username });
     }
     if (path === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig(store.config));
-    if (path === '/api/aqqbot/relay-state' && req.method === 'GET') return json(res, 200, await readAqqbotRelay(store.config));
     if (path === '/api/config' && req.method === 'POST') {
       const next = validateConfig(await body(req), store.config);
-      const pathChanged = next.aqqbotConfigPath !== (store.config.aqqbotConfigPath ?? '') || next.aqqbotMessagesPath !== (store.config.aqqbotMessagesPath ?? '');
-      let relayResult = 'AQQBot 实际文件路径未配置；网页无法判断服务器的真实转发状态';
-      if (next.aqqbotConfigPath && next.aqqbotMessagesPath) {
-        if (pathChanged) {
-          Object.assign(next, await readAqqbotRelay(next));
-          relayResult = '已读取 AQQBot 当前开关状态，尚未修改插件；如需切换，请再操作开关并保存';
-        } else {
-          const relay = await applyAqqbotRelay(next, rconCommand);
-          relayResult = relay.output;
-        }
-      }
       store.saveConfig(next);
       store.audit('config', '管理员更新了连接配置');
       bridge.restart();
-      return json(res, 200, { ...publicConfig(next), relayResult });
+      return json(res, 200, publicConfig(next));
+    }
+    if (path === '/api/test/mcsm-output' && req.method === 'POST') {
+      const output = await fetchMcsmOutput(store.config);
+      const lines = output.split(/\r?\n/).slice(-18).map(line => line.slice(0, 250));
+      return json(res, 200, { connected: true, recentOutput: lines, detectedChats: lines.map(parseMcPlayerChat).filter(Boolean) });
     }
     if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.values(store.state.bindings).reduce((count, bindings) => count + bindings.length, 0), rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
     if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, store.listUsers().flatMap(user => user.bindings.map(binding => ({ qq: user.qq, ...binding }))));

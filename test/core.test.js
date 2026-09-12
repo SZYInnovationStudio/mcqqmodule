@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Storage } from '../src/storage.js';
@@ -10,7 +10,8 @@ import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
-import { applyAqqbotRelay, prepareRelayFiles, readAqqbotRelay, MC_TO_QQ_TEMPLATE, QQ_TO_MC_TEMPLATE } from '../src/aqqbot-relay.js';
+import { makeQqTellraw } from '../src/qq-chat.js';
+import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
@@ -34,7 +35,7 @@ test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家',
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('普通 QQ 群聊由 AQQBot 处理，本平台不再重复发送 tellraw', async () => {
+test('QQ 群聊按开关经 RCON 显示；去重、忽略机器人及未知命令', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
@@ -46,45 +47,50 @@ test('普通 QQ 群聊由 AQQBot 处理，本平台不再重复发送 tellraw', 
     await bridge.handleEvent(event);
     await bridge.handleEvent({ ...event, senderIsBot: true, messageId: 'chat-2' });
     await bridge.handleEvent({ ...event, messageId: 'chat-3', content: '/unknown' });
-    assert.deepEqual(commands, []);
+    assert.equal(commands.length, 1);
+    assert.match(commands[0], /^tellraw @a /);
+    const payload = JSON.parse(commands[0].slice('tellraw @a '.length));
+    assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称: 你好' }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('仅修改 AQQBot 双向聊天开关与显示模板，其他配置不变', async () => {
-  const sourceConfig = 'whitelist:\n  enable: true\nchat:\n  group_to_server:\n    enable: true\n  server_to_group:\n    enable: true\ninformation:\n  list:\n    enable: true\n';
-  const sourceMessages = 'qq:\n  chat_from_game: "old"\ngame:\n  chat_from_qq: "old"\n';
-  const result = prepareRelayFiles(sourceConfig, sourceMessages, { qqToMcEnabled: false, mcToQqEnabled: true });
-  assert.match(result.configText, /group_to_server:\n    enable: false/);
-  assert.match(result.configText, /server_to_group:\n    enable: true/);
-  assert.match(result.configText, /whitelist:\n  enable: true/);
-  assert.match(result.configText, /information:\n  list:\n    enable: true/);
-  assert.ok(result.messagesText.includes(JSON.stringify(MC_TO_QQ_TEMPLATE)));
-  assert.ok(result.messagesText.includes(JSON.stringify(QQ_TO_MC_TEMPLATE)));
+test('QQ 文本不会注入 RCON 命令或颜色；只允许模板控制样式', () => {
+  const command = makeQqTellraw('&a[QQ群]&r ${userName}: ${message}', { userName: 'A&c', message: 'hello "}\nstop\n&a', groupId: 'G' });
+  assert.ok(!command.includes('\n'));
+  assert.match(command, /^tellraw @a /);
+  const payload = JSON.parse(command.slice('tellraw @a '.length));
+  assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' A&c: hello "} stop &a' }]);
+  assert.throws(() => makeQqTellraw('${bad} ${userName} ${message}', { userName: 'x', message: 'y' }), /占位符/);
 });
 
-test('更新真实 AQQBot 文件后重载；重载失败则恢复原文件', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const aqqbotConfigPath = join(dir, 'config.yml');
-    const aqqbotMessagesPath = join(dir, 'messages.yml');
-    const originalConfig = 'chat:\n  group_to_server:\n    enable: true\n  server_to_group:\n    enable: true\n';
-    const originalMessages = 'qq:\n  chat_from_game: "old"\ngame:\n  chat_from_qq: "old"\n';
-    writeFileSync(aqqbotConfigPath, originalConfig);
-    writeFileSync(aqqbotMessagesPath, originalMessages);
-    const config = { aqqbotConfigPath, aqqbotMessagesPath, qqToMcEnabled: false, mcToQqEnabled: true };
-    assert.deepEqual(await readAqqbotRelay(config), { qqToMcEnabled: true, mcToQqEnabled: true });
-    const commands = [];
-    const result = await applyAqqbotRelay(config, async (_config, command) => { commands.push(command); return '插件配置重载成功!'; });
-    assert.equal(result.changed, true);
-    assert.deepEqual(commands, ['aqqbot reload']);
-    assert.match(readFileSync(aqqbotConfigPath, 'utf8'), /group_to_server:\n    enable: false/);
-    assert.deepEqual(await readAqqbotRelay(config), { qqToMcEnabled: false, mcToQqEnabled: true });
-    writeFileSync(aqqbotConfigPath, originalConfig);
-    writeFileSync(aqqbotMessagesPath, originalMessages);
-    await assert.rejects(applyAqqbotRelay(config, async () => { throw new Error('RCON 失败'); }), /已尝试恢复原文件/);
-    assert.equal(readFileSync(aqqbotConfigPath, 'utf8'), originalConfig);
-    assert.equal(readFileSync(aqqbotMessagesPath, 'utf8'), originalMessages);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+test('MCSManager 输出接口仅后台使用密钥，并识别玩家聊天', async () => {
+  const config = { mcsmBaseUrl: 'https://panel.example.com/', mcsmApiKey: 'secret-key', mcsmDaemonId: 'daemon_123', mcsmInstanceUuid: 'instance_123' };
+  const calls = [];
+  const output = await fetchMcsmOutput(config, async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, json: async () => ({ status: 200, data: '[12:00:00] [Server thread/INFO]: <Alice> hello\n' }) };
+  });
+  assert.match(calls[0].url.href, /protected_instance\/outputlog/);
+  assert.equal(calls[0].url.searchParams.get('apikey'), 'secret-key');
+  assert.equal(calls[0].url.searchParams.get('uuid'), 'instance_123');
+  assert.equal(calls[0].options.headers['X-Requested-With'], 'XMLHttpRequest');
+  assert.deepEqual(parseMcPlayerChat(output.trim()), { player: 'Alice', content: 'hello' });
+  assert.equal(parseMcPlayerChat('[12:00:00] [Server thread/INFO]: [QQ群] x: hello'), null);
+  await assert.rejects(fetchMcsmOutput(config, async () => ({ ok: false, status: 403 })), /HTTP 403/);
+});
+
+test('MC 输出轮询先建立基线，只转发后来完整的新聊天', async () => {
+  const delivered = [];
+  const snapshots = [
+    '[12:00:00] [Server thread/INFO]: <Alice> old\n',
+    '[12:00:00] [Server thread/INFO]: <Alice> old\n[12:00:01] [Server thread/INFO]: <Bob> new\n',
+    '[12:00:00] [Server thread/INFO]: <Alice> old\n[12:00:01] [Server thread/INFO]: <Bob> new\n'
+  ];
+  const relay = new McsmOutputRelay({}, chat => delivered.push(chat), error => { throw error; }, async () => snapshots.shift());
+  relay.running = true;
+  await relay.poll(); await relay.poll(); await relay.poll();
+  relay.stop();
+  assert.deepEqual(delivered, [{ player: 'Bob', content: 'new' }]);
 });
 
 test('配置密钥加密保存且读取时不回传', () => {
@@ -107,11 +113,11 @@ test('配置密钥加密保存且读取时不回传', () => {
     assert.equal(validateConfig({ qqAppSecret: '' }, config).qqAppSecret, 'secret-bot');
     assert.equal(publicConfig(config).mcToQqEnabled, false);
     assert.equal(publicConfig(config).qqToMcEnabled, false);
-    const paths = { aqqbotConfigPath: join(dir, 'config.yml'), aqqbotMessagesPath: join(dir, 'messages.yml') };
-    const toggled = validateConfig({ ...paths, mcToQqEnabled: true, qqToMcEnabled: false }, config);
+    const toggled = validateConfig({ mcToQqEnabled: true, qqToMcEnabled: false }, config);
     assert.equal(publicConfig(toggled).mcToQqEnabled, true);
     assert.equal(publicConfig(toggled).qqToMcEnabled, false);
-    assert.throws(() => validateConfig({ mcToQqEnabled: true }, config), /完整路径/);
+    assert.equal(publicConfig(toggled).qqToMcTemplate, '&a[QQ群]&r ${userName}: ${message}');
+    assert.throws(() => validateConfig({ mcToQqEnabled: true }, { qqAppId: '12345678', qqAppSecret: 'x', allowedGroups: 'GROUP_OPENID_123' }), /MCSManager/);
     assert.throws(() => validateConfig({ qqToMcEnabled: 'anything' }, config), /开关格式无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
