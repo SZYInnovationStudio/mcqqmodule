@@ -1,13 +1,14 @@
 import { randomBytes } from 'node:crypto';
-import { QQBot } from '@tencent-connect/qqbot-nodejs';
+import { QQBot, messageFilter } from '@tencent-connect/qqbot-nodejs';
 import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
+import { ChatLogTail, cleanChat, parseOnlineList, qqTellraw } from './chat-relay.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
 const COMMAND_CATEGORY = {
   qqbind: 'QQ 登记', qqconfirm: 'QQ 登记', qqunbind: 'QQ 登记',
-  mcbind: 'MC 绑定', mcunbind: 'MC 解绑', mcunallbind: 'MC 解绑', motd: '服务器查询'
+  mcbind: 'MC 绑定', mcunbind: 'MC 解绑', mcunallbind: 'MC 解绑', motd: '服务器查询', list: '服务器查询'
 };
 const redactCode = value => String(value ?? '').replace(/BIND-[A-F0-9]{6}/gi, 'BIND-******');
 
@@ -25,12 +26,24 @@ export class Bridge {
     this.status = '未连接';
     this.bot = null;
     this.stopped = false;
+    this.logTail = null;
   }
 
-  start() { this.stopped = false; this.connect(); }
+  start() {
+    this.stopped = false;
+    this.connect();
+    if (this.store.config.mcLogPath) {
+      this.logTail = new ChatLogTail(this.store.config.mcLogPath,
+        chat => this.forwardMcChat(chat),
+        error => this.store.audit('chat-log-error', `MC 聊天日志读取失败：${error.message}`));
+      this.logTail.start();
+    }
+  }
 
   stop() {
     this.stopped = true;
+    this.logTail?.stop();
+    this.logTail = null;
     this.bot?.stop();
     this.bot = null;
     this.status = '未连接';
@@ -43,6 +56,7 @@ export class Bridge {
     if (!qqAppId || !qqAppSecret) { this.status = '未配置'; return; }
     try {
       const bot = this.createBot({ appId: qqAppId, appSecret: qqAppSecret });
+      bot.use?.(messageFilter({ skipSelfEcho: true, dedup: { windowMs: 10000 } }));
       this.bot = bot;
       this.status = '连接中';
       bot.on('ready', () => { if (this.bot === bot) this.status = '已连接'; });
@@ -71,8 +85,26 @@ export class Bridge {
     await this.bot.sendText(event.replyTarget, message);
   }
 
+  async forwardMcChat({ player, content }) {
+    if (this.stopped || !this.bot || this.status !== '已连接') return;
+    const groups = this.store.config.allowedGroups?.split(',').filter(Boolean) ?? [];
+    for (const group of groups) {
+      try {
+        await this.bot.sendText({ scope: 'group', targetId: group }, `[服务器] ${player}:${content}`);
+      } catch (error) { this.store.audit('chat-qq-error', `群 ${group} 消息发送失败：${error.message}`); }
+    }
+  }
+
+  async forwardQqChat(event, message) {
+    const nickname = cleanChat(event.senderName || this.store.state.users[event.senderId]?.qq || '群友', 48);
+    const command = qqTellraw(nickname, message);
+    if (!command) return;
+    try { await this.rcon(this.store.config, command); }
+    catch (error) { this.store.audit('chat-rcon-error', `群消息发送到 MC 失败：${error.message}`); }
+  }
+
   async handleEvent(event) {
-    if (event.kind !== 'group') return;
+    if (event.kind !== 'group' || event.senderIsBot === true || event.raw?.author?.bot === true) return;
     const openid = String(event.senderId ?? '');
     const group = String(event.groupOpenid ?? '');
     const allowed = this.store.config.allowedGroups?.split(',').filter(Boolean) ?? [];
@@ -84,12 +116,16 @@ export class Bridge {
     const message = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
-    if (!/^\/(?:qqbind|qqunbind|mcbind|mcunbind|mcunallbind|motd)(?:\s|$)/i.test(message) && !isCode) return;
+    const isCommand = /^\/(?:qqbind|qqunbind|mcbind|mcunbind|mcunallbind|motd|list)(?:\s|$)/i.test(message);
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
       if (this.seen.has(key)) return;
       this.seen.set(key, Date.now());
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
+    }
+    if (!isCommand && !isCode) {
+      if (message && !message.startsWith('/')) await this.forwardQqChat(event, message);
+      return;
     }
     const ownCode = submittedCode && this.pending.get(openid)?.code === submittedCode && this.pending.get(openid)?.group === group;
     const now = Date.now();
@@ -117,7 +153,15 @@ export class Bridge {
             ? `（${shown.join('，')}${Number(info.online) > shown.length ? `；仅显示服务器提供的 ${shown.length} 人` : ''}）`
             : '（服务器未提供玩家名单）';
           reply = `🎮 服务器状态\n👥 当前在线：${info.online ?? '?'} 人（上限 ${info.max ?? '?'} 人）\n🧑 在线玩家：${names}\n\n📢 服务器介绍：\n${info.motd || '（空）'}${info.version ? `\n\n🧩 游戏版本：${info.version}` : ''}`;
-        } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/mcunallbind、/motd';
+        } else if (/^\/list\s*$/i.test(message)) {
+          let names = parseOnlineList(await this.rcon(this.store.config, 'list'));
+          if (!names) {
+            const info = await this.motd(this.store.config);
+            if (Number.isInteger(info.online) && info.players?.length === info.online) names = info.players;
+          }
+          if (!names) throw new Error('服务器没有提供完整的当前在线玩家名单');
+          reply = names.length ? `当前在线玩家：${names.join('，')}` : '当前没有在线玩家';
+        } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/mcunallbind、/motd、/list';
       }
       await this.send(event, reply.slice(0, 1800));
       logResult = reply;
@@ -160,7 +204,7 @@ export class Bridge {
     this.pending.delete(openid);
     this.lastCommand.delete(openid);
     this.store.audit('register', `OpenID ${openid} 自填并确认 QQ ${pending.qq}`);
-    return `QQ 号 ${pending.qq} 已登记。现在可以发送 /mcbind <玩家名>（例如 /mcbind implayer）、/mcunbind <玩家名> 或 /motd。之前被拦下的命令请重新发送。`;
+    return `QQ 号 ${pending.qq} 已登记。现在可以发送 /mcbind <玩家名>（例如 /mcbind implayer）、/mcunbind <玩家名>、/motd 或 /list。之前被拦下的命令请重新发送。`;
   }
 
   unbindQq(openid, message) {

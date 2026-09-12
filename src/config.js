@@ -1,4 +1,6 @@
-const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'qqAppId', 'qqAppSecret', 'allowedGroups'];
+import { isAbsolute } from 'node:path';
+
+const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'mcLogPath', 'qqAppId', 'qqAppSecret', 'allowedGroups'];
 const secrets = ['rconPassword', 'qqAppSecret'];
 
 export function validateConfig(input, current = {}) {
@@ -13,6 +15,7 @@ export function validateConfig(input, current = {}) {
   }
   next.allowedGroups = next.allowedGroups.split(/[\s,，]+/).filter(Boolean).join(',');
   if (next.allowedGroups && !/^[A-Za-z0-9_-]{5,128}(,[A-Za-z0-9_-]{5,128})*$/.test(next.allowedGroups)) throw new Error('群 OpenID 列表格式不合法');
+  if (next.mcLogPath && (next.mcLogPath.length > 1024 || !isAbsolute(next.mcLogPath) || !/\.log$/i.test(next.mcLogPath) || /[\r\n\0]/.test(next.mcLogPath))) throw new Error('MC 日志路径必须是完整的 .log 文件路径');
   return next;
 }
 
