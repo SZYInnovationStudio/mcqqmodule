@@ -91,13 +91,19 @@ test('配置密钥加密保存且读取时不回传', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    const config = validateConfig({ rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123' });
+    const config = validateConfig({ rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123', mcsmBaseUrl: 'https://mcsm.example.com/', mcsmApiKey: 'secret-mcsm', mcsmDaemonId: 'daemon_123', mcsmInstanceUuid: 'instance_123' });
     store.saveConfig(config);
     const raw = readFileSync(join(dir, 'config.enc'), 'utf8');
     assert.ok(!raw.includes('secret-pass'));
+    assert.ok(!raw.includes('secret-mcsm'));
     assert.equal(publicConfig(config).qqAppSecret, undefined);
     assert.equal(publicConfig(config).qqAppSecretSet, true);
-    assert.equal(publicConfig({ ...config, mcsmApiKey: 'legacy-secret' }).mcsmApiKey, undefined);
+    assert.equal(publicConfig(config).mcsmApiKey, undefined);
+    assert.equal(publicConfig(config).mcsmApiKeySet, true);
+    assert.equal(publicConfig(config).mcsmBaseUrl, 'https://mcsm.example.com');
+    assert.equal(publicConfig(config).mcsmDaemonId, 'daemon_123');
+    assert.equal(validateConfig({ mcsmApiKey: '' }, config).mcsmApiKey, 'secret-mcsm');
+    assert.throws(() => validateConfig({ mcsmBaseUrl: 'https://user:pass@mcsm.example.com/' }, config), /格式不合法/);
     assert.equal(validateConfig({ qqAppSecret: '' }, config).qqAppSecret, 'secret-bot');
     assert.equal(publicConfig(config).mcToQqEnabled, false);
     assert.equal(publicConfig(config).qqToMcEnabled, false);

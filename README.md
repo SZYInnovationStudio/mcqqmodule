@@ -14,7 +14,7 @@ npm start
 
 浏览器打开 `http://127.0.0.1:2556`。首次使用时自行设置管理员用户名和密码：密码至少 6 位，只能使用字母和数字，且必须同时包含字母和数字；之后用该账户登录。登录后可在「修改用户名或密码」中更改，修改后需要重新登录。账户以加盐 scrypt 哈希保存在 Git 忽略的 `data/admin.json`，不再需要启动环境变量中的密码。
 
-随后填写 RCON 主机、端口和密码；Minecraft 主机/游戏端口；QQ 官方 Bot 的 AppID、AppSecret 和允许使用的群 OpenID。聊天互通改由 AQQBot 插件执行：后台两个开关会精确修改服务器正在使用的 `config.yml` 和 `messages.yml`，备份原文件，再用 RCON 发送 `aqqbot reload`。因此本程序必须能读写这两个实际文件；本机下载副本无法控制远程服务器。不再需要 `logs/latest.log`。QQ 登记/绑定仍使用官方 Bot，AQQBot 聊天仍取决于其 OneBot 后端。不需要 MCSManager API。请不要把管理网页、`data/`、密码或 AppSecret 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
+随后填写 RCON 主机、端口和密码；Minecraft 主机/游戏端口；QQ 官方 Bot 的 AppID、AppSecret 和允许使用的群 OpenID。聊天互通改由 AQQBot 插件执行：后台两个开关会精确修改服务器正在使用的 `config.yml` 和 `messages.yml`，备份原文件，再用 RCON 发送 `aqqbot reload`。因此本程序必须能读写这两个实际文件；本机下载副本无法控制远程服务器。不再需要 `logs/latest.log`。QQ 登记/绑定仍使用官方 Bot，AQQBot 聊天仍取决于其 OneBot 后端。另有 MCSManager API 资料预留区，仅加密保存面板地址、API Key、Daemon ID 和 Instance UUID，目前不发 API 请求，也不影响现有功能。请不要把管理网页、`data/`、密码或 AppSecret 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
 
 页面分为六个入口：`/` 总览；`/settings` 修改连接信息和管理员账户；`/terminal` 仅管理员使用的 RCON 远程终端，可查看最近 100 条管理员命令日志；`/player-logs` 玩家命令日志，可按 QQ 登记、MC 绑定、MC 解绑、服务器查询分类筛选；`/users` 已登记及已绑定用户列表，可修改、删除本平台记录；`/guide` 使用教程。两种日志分别加密保存在 Git 忽略的 `data/rcon-log.enc` 与 `data/player-log.enc`，仅登录管理员可通过网页读取。玩家日志保留最近 200 条被机器人处理的命令，不包括普通聊天，并遮盖临时确认码。可直接照着 [COMMANDS.md](COMMANDS.md) 配置 QQ 侧的七个指令。本平台的 QQ 接入使用官方 Bot，不使用 OneBot；但 AQQBot 插件自身可能仍依赖 OneBot 后端，需在真实服务器确认。
 

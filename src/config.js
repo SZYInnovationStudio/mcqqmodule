@@ -1,7 +1,7 @@
 import { basename, isAbsolute } from 'node:path';
 
-const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'aqqbotConfigPath', 'aqqbotMessagesPath', 'qqAppId', 'qqAppSecret', 'allowedGroups'];
-const secrets = ['rconPassword', 'qqAppSecret'];
+const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'aqqbotConfigPath', 'aqqbotMessagesPath', 'qqAppId', 'qqAppSecret', 'allowedGroups', 'mcsmBaseUrl', 'mcsmApiKey', 'mcsmDaemonId', 'mcsmInstanceUuid'];
+const secrets = ['rconPassword', 'qqAppSecret', 'mcsmApiKey'];
 const relayFlags = ['mcToQqEnabled', 'qqToMcEnabled'];
 
 export function validateConfig(input, current = {}) {
@@ -9,6 +9,14 @@ export function validateConfig(input, current = {}) {
   for (const key of keys) next[key] = String(input[key] ?? current[key] ?? '').trim();
   for (const key of secrets) if (!String(input[key] ?? '').trim()) next[key] = current[key] ?? '';
   if (next.qqAppId && !/^\d{5,32}$/.test(next.qqAppId)) throw new Error('QQ Bot AppID 格式不合法');
+  if (next.mcsmBaseUrl) {
+    let url;
+    try { url = new URL(next.mcsmBaseUrl); } catch { throw new Error('MCSManager 地址必须是 http:// 或 https:// 开头的完整地址'); }
+    if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash || next.mcsmBaseUrl.length > 2048) throw new Error('MCSManager 地址格式不合法：不要包含账号、密码或查询参数');
+    next.mcsmBaseUrl = next.mcsmBaseUrl.replace(/\/+$/, '');
+  }
+  if (next.mcsmApiKey && (next.mcsmApiKey.length > 2048 || /[\x00-\x1f\x7f]/.test(next.mcsmApiKey))) throw new Error('MCSManager API Key 格式不合法');
+  for (const field of ['mcsmDaemonId', 'mcsmInstanceUuid']) if (next[field] && !/^[A-Za-z0-9_-]{1,128}$/.test(next[field])) throw new Error(`${field} 格式不合法`);
   for (const field of ['rconHost', 'mcHost']) if (next[field] && !/^[a-zA-Z0-9.:-]{1,253}$/.test(next[field])) throw new Error(`${field} 格式不合法`);
   for (const field of ['rconPort', 'mcPort']) {
     const port = Number(next[field]);
