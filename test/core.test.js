@@ -10,7 +10,7 @@ import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
-import { makeQqTellraw } from '../src/qq-chat.js';
+import { makeQqTellraw, parseNameMap } from '../src/qq-chat.js';
 import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
@@ -50,7 +50,7 @@ test('QQ 群聊按开关经 RCON 显示；去重、忽略机器人及未知命�
     assert.equal(commands.length, 1);
     assert.match(commands[0], /^tellraw @a /);
     const payload = JSON.parse(commands[0].slice('tellraw @a '.length));
-    assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称: 你好' }]);
+    assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称：你好' }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -61,6 +61,27 @@ test('QQ 文本不会注入 RCON 命令或颜色；只允许模板控制样式',
   const payload = JSON.parse(command.slice('tellraw @a '.length));
   assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' A&c: hello "} stop &a' }]);
   assert.throws(() => makeQqTellraw('${bad} ${userName} ${message}', { userName: 'x', message: 'y' }), /占位符/);
+});
+
+test('群名称与成员名按 OpenID 映射，旧模板自动升级', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = {
+      allowedGroups: 'GROUP_OPENID_123', qqToMcEnabled: true,
+      qqToMcTemplate: '&a[QQ群]&r ${userName}: ${message}',
+      groupNames: 'GROUP_OPENID_123=生存群', memberNames: 'USER_OPENID_123=AAA钻石批发'
+    };
+    const commands = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => commands.push(command) });
+    await bridge.handleEvent({ kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: 'Beibing', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, content: '进服测试' });
+    const payload = JSON.parse(commands[0].slice('tellraw @a '.length));
+    assert.deepEqual(payload.extra, [{ text: '[生存群]', color: 'green' }, { text: ' AAA钻石批发：进服测试' }]);
+    assert.equal(parseNameMap('GROUP_OPENID_123=生存群').get('GROUP_OPENID_123'), '生存群');
+    assert.throws(() => parseNameMap('GROUP_OPENID_123=一\nGROUP_OPENID_123=二'), /重复/);
+    assert.throws(() => validateConfig({ groupNames: 'bad line' }), /群名称映射格式/);
+    assert.equal(publicConfig({ qqToMcTemplate: '&a[QQ群]&r ${userName}: ${message}' }).qqToMcTemplate, '&a[${groupName}]&r ${userName}：${message}');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('MCSManager 输出接口仅后台使用密钥，并识别玩家聊天', async () => {
@@ -135,7 +156,7 @@ test('配置密钥加密保存且读取时不回传', () => {
     const toggled = validateConfig({ mcToQqEnabled: true, qqToMcEnabled: false }, config);
     assert.equal(publicConfig(toggled).mcToQqEnabled, true);
     assert.equal(publicConfig(toggled).qqToMcEnabled, false);
-    assert.equal(publicConfig(toggled).qqToMcTemplate, '&a[QQ群]&r ${userName}: ${message}');
+    assert.equal(publicConfig(toggled).qqToMcTemplate, '&a[${groupName}]&r ${userName}：${message}');
     assert.throws(() => validateConfig({ mcToQqEnabled: true }, { qqAppId: '12345678', qqAppSecret: 'x', allowedGroups: 'GROUP_OPENID_123' }), /MCSManager/);
     assert.throws(() => validateConfig({ qqToMcEnabled: 'anything' }, config), /开关格式无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }

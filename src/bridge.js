@@ -3,9 +3,9 @@ import { QQBot, messageFilter } from '@tencent-connect/qqbot-nodejs';
 import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
 import { parseOnlineList } from './chat-relay.js';
-import { makeQqTellraw } from './qq-chat.js';
+import { makeQqTellraw, parseNameMap } from './qq-chat.js';
 import { McsmOutputRelay, formatMcToQq } from './mcsm.js';
-import { DEFAULT_QQ_TO_MC_TEMPLATE, DEFAULT_MC_TO_QQ_TEMPLATE } from './config.js';
+import { resolveQqToMcTemplate, DEFAULT_MC_TO_QQ_TEMPLATE } from './config.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -27,6 +27,7 @@ export class Bridge {
     this.seen = new Map();
     this.lastCommand = new Map();
     this.discoveredGroups = new Set();
+    this.discoveredSenders = new Set();
     this.status = '未连接';
     this.bot = null;
     this.outputRelay = null;
@@ -110,6 +111,10 @@ export class Bridge {
       this.store.audit('group-discovered', `发现 QQ 群 OpenID：${group}；请填到“修改信息”允许群列表`);
     }
     if (!allowed.includes(group) || !openid || !event.replyTarget) return;
+    if (this.store.config.qqToMcEnabled === true && !this.discoveredSenders.has(openid)) {
+      this.discoveredSenders.add(openid);
+      this.store.audit('chat-sender-discovered', `群 ${group}，成员 OpenID ${openid}，官方 Bot 昵称：${String(event.senderName ?? '未知').slice(0, 48)}`);
+    }
     const message = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
@@ -124,8 +129,9 @@ export class Bridge {
     }
     if (isChat) {
       try {
-        const userName = event.senderName || this.store.state.users[openid]?.qq || '群友';
-        const command = makeQqTellraw(this.store.config.qqToMcTemplate || DEFAULT_QQ_TO_MC_TEMPLATE, { userName, message, groupId: group });
+        const userName = parseNameMap(this.store.config.memberNames, '成员显示名映射').get(openid) || event.senderName || this.store.state.users[openid]?.qq || '群友';
+        const groupName = parseNameMap(this.store.config.groupNames, '群名称映射').get(group) || 'QQ群';
+        const command = makeQqTellraw(resolveQqToMcTemplate(this.store.config.qqToMcTemplate), { userName, message, groupId: group, groupName });
         if (command) await this.rcon(this.store.config, command);
       } catch (error) { this.store.audit('qq-to-mc-error', `群 ${group}：${error.message}`); }
       return;

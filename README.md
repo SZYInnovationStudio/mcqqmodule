@@ -14,7 +14,7 @@ npm start
 
 浏览器打开 `http://127.0.0.1:2556`。首次使用时自行设置管理员用户名和密码：密码至少 6 位，只能使用字母和数字，且必须同时包含字母和数字；之后用该账户登录。登录后可在「修改用户名或密码」中更改，修改后需要重新登录。账户以加盐 scrypt 哈希保存在 Git 忽略的 `data/admin.json`，不再需要启动环境变量中的密码。
 
-随后填写 RCON 主机、端口和密码；Minecraft 主机/游戏端口；QQ 官方 Bot 的 AppID、AppSecret 和允许使用的群 OpenID。聊天互通有两个独立开关：QQ → MC 使用官方 Bot 接收允许群的普通消息，再通过 RCON 发送固定 `tellraw @a`；MC → QQ 每两秒读取一次 MCSManager 实例控制台输出，只把新出现的玩家聊天推送到允许群。后者需要填写面板地址、API Key、Daemon ID 和 Instance UUID，并先用“测试 MC 控制台”确认输出里确实有玩家聊天。首次连接只建立基线，不重发已有消息；若输出截断导致无法衔接，就跳过该轮，避免重复发送。QQ 官方 Bot 的主动群消息有平台额度限制。两个显示模板可在网页修改，默认 QQ → MC 为 `&a[QQ群]&r ${userName}: ${message}`，MC → QQ 为 `[服务器] ${player}: ${message}`。
+随后填写 RCON 主机、端口和密码；Minecraft 主机/游戏端口；QQ 官方 Bot 的 AppID、AppSecret 和允许使用的群 OpenID。聊天互通有两个独立开关：QQ → MC 使用官方 Bot 接收允许群的普通消息，再通过 RCON 发送固定 `tellraw @a`；MC → QQ 每两秒读取一次 MCSManager 实例控制台输出，只把新出现的玩家聊天推送到允许群。后者需要填写面板地址、API Key、Daemon ID 和 Instance UUID，并先用“测试 MC 控制台”确认输出里确实有玩家聊天。若返回“管理员禁用了 API Key”，需面板管理员在 MCSManager Web 配置中启用 `enableApiKey` 并重启 Web 服务；本平台不会代改。首次连接只建立基线，不重发已有消息；若输出截断导致无法衔接，就跳过该轮，避免重复发送。QQ 官方 Bot 的主动群消息有平台额度限制。两个显示模板可在网页修改，默认 QQ → MC 为 `&a[${groupName}]&r ${userName}：${message}`，MC → QQ 为 `[服务器] ${player}: ${message}`。群名和成员群名片可在后台按 OpenID 填写映射；官方 Bot 群消息本身不提供这两个值，未填写时显示“QQ群”和 Bot 提供的昵称。
 
 本平台不会修改 AQQBot 的 `config.yml`、`messages.yml`，也不会修改服务器配置。若服务器里的 AQQBot 已自行转发聊天，服主需自行关闭相应方向，否则可能收到重复消息。无需读取 `logs/latest.log`，但 MC → QQ 能否工作取决于 MCSManager 的实时控制台是否包含玩家聊天。API Key 只在后台使用并加密保存，不回传网页。请不要把管理网页、`data/`、密码或 AppSecret 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
 

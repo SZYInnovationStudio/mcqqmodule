@@ -1,8 +1,10 @@
-import { validateQqTemplate } from './qq-chat.js';
+import { parseNameMap, validateQqTemplate } from './qq-chat.js';
 
-export const DEFAULT_QQ_TO_MC_TEMPLATE = '&a[QQ群]&r ${userName}: ${message}';
+export const DEFAULT_QQ_TO_MC_TEMPLATE = '&a[${groupName}]&r ${userName}：${message}';
+const OLD_QQ_TO_MC_TEMPLATE = '&a[QQ群]&r ${userName}: ${message}';
+export const resolveQqToMcTemplate = value => !value || value === OLD_QQ_TO_MC_TEMPLATE ? DEFAULT_QQ_TO_MC_TEMPLATE : value;
 export const DEFAULT_MC_TO_QQ_TEMPLATE = '[服务器] ${player}: ${message}';
-const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'qqAppId', 'qqAppSecret', 'allowedGroups', 'mcsmBaseUrl', 'mcsmApiKey', 'mcsmDaemonId', 'mcsmInstanceUuid', 'qqToMcTemplate', 'mcToQqTemplate'];
+const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'qqAppId', 'qqAppSecret', 'allowedGroups', 'mcsmBaseUrl', 'mcsmApiKey', 'mcsmDaemonId', 'mcsmInstanceUuid', 'qqToMcTemplate', 'mcToQqTemplate', 'groupNames', 'memberNames'];
 const secrets = ['rconPassword', 'qqAppSecret', 'mcsmApiKey'];
 const relayFlags = ['mcToQqEnabled', 'qqToMcEnabled'];
 
@@ -26,9 +28,11 @@ export function validateConfig(input, current = {}) {
   }
   next.allowedGroups = next.allowedGroups.split(/[\s,，]+/).filter(Boolean).join(',');
   if (next.allowedGroups && !/^[A-Za-z0-9_-]{5,128}(,[A-Za-z0-9_-]{5,128})*$/.test(next.allowedGroups)) throw new Error('群 OpenID 列表格式不合法');
-  next.qqToMcTemplate ||= DEFAULT_QQ_TO_MC_TEMPLATE;
+  next.qqToMcTemplate = resolveQqToMcTemplate(next.qqToMcTemplate);
   next.mcToQqTemplate ||= DEFAULT_MC_TO_QQ_TEMPLATE;
   validateQqTemplate(next.qqToMcTemplate);
+  parseNameMap(next.groupNames, '群名称映射');
+  parseNameMap(next.memberNames, '成员显示名映射');
   if (next.mcToQqTemplate.length > 300 || /[\r\n\0]/.test(next.mcToQqTemplate) || !next.mcToQqTemplate.includes('${player}') || !next.mcToQqTemplate.includes('${message}')) throw new Error('MC → QQ 模板需包含 ${player} 和 ${message}，最多 300 字');
   for (const flag of relayFlags) {
     const value = input[flag] ?? current[flag] ?? false;
@@ -42,7 +46,7 @@ export function validateConfig(input, current = {}) {
 
 export function publicConfig(config) {
   const result = {};
-  for (const key of keys) if (!secrets.includes(key)) result[key] = config[key] ?? (key === 'qqToMcTemplate' ? DEFAULT_QQ_TO_MC_TEMPLATE : key === 'mcToQqTemplate' ? DEFAULT_MC_TO_QQ_TEMPLATE : '');
+  for (const key of keys) if (!secrets.includes(key)) result[key] = key === 'qqToMcTemplate' ? resolveQqToMcTemplate(config[key]) : config[key] ?? (key === 'mcToQqTemplate' ? DEFAULT_MC_TO_QQ_TEMPLATE : '');
   for (const flag of relayFlags) result[flag] = config[flag] === true;
   for (const key of secrets) {
     result[`${key}Set`] = Boolean(config[key]);
