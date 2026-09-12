@@ -32,7 +32,7 @@ export class Bridge {
     this.status = '未连接';
     this.bot = null;
     this.outputRelay = null;
-    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat));
+    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat), event => this.sendMcPresenceToQq(event));
     this.stopped = false;
   }
 
@@ -60,7 +60,7 @@ export class Bridge {
 
   restart() {
     this.stop();
-    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat));
+    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat), event => this.sendMcPresenceToQq(event));
     this.start();
   }
 
@@ -106,9 +106,21 @@ export class Bridge {
   async sendMcChatToQq(chat) {
     if (this.stopped || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
     const content = formatMcToQq(this.store.config.mcToQqTemplate || DEFAULT_MC_TO_QQ_TEMPLATE, chat);
+    await this.sendToAllowedGroups(content, 'mc-to-qq-error');
+  }
+
+  async sendMcPresenceToQq(event) {
+    if (this.stopped || this.store.config.chatTransport !== 'plugin' || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
+    const players = event.players.join('、');
+    const roster = players.length > 1500 ? `${players.slice(0, 1500)}…（名单过长）` : players || '无';
+    const action = event.kind === 'join' ? '进入了服务器' : '离开了服务器';
+    await this.sendToAllowedGroups(`[服务器] ${event.player} ${action}\n在线玩家（${event.players.length}）：${roster}`, 'mc-presence-error');
+  }
+
+  async sendToAllowedGroups(content, auditCategory) {
     for (const targetId of this.store.config.allowedGroups?.split(',').filter(Boolean) ?? []) {
       try { await this.bot.sendText({ scope: 'group', targetId }, content); }
-      catch (error) { this.store.audit('mc-to-qq-error', `群 ${targetId}：${error.message}`); }
+      catch (error) { this.store.audit(auditCategory, `群 ${targetId}：${error.message}`); }
     }
   }
 

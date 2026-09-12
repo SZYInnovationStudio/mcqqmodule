@@ -179,6 +179,36 @@ test('插件模式 QQ → MC 排队给插件，不调用 RCON', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('插件玩家进出服播报包含当时的在线人数和名单，重复事件不重发', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', mcToQqEnabled: true };
+    const sent = [];
+    const bridge = new Bridge(store);
+    bridge.bot = { sendText: async (_target, content) => sent.push(content) };
+    bridge.status = '已连接';
+    const events = [
+      { id: 'run12345-join', kind: 'join', player: 'Alice', players: ['Alice'] },
+      { id: 'run12345-quit', kind: 'quit', player: 'Alice', players: [] }
+    ];
+    bridge.exchangePluginChat({ ack: 0, sent: events });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(sent, [
+      '[服务器] Alice 进入了服务器\n在线玩家（1）：Alice',
+      '[服务器] Alice 离开了服务器\n在线玩家（0）：无'
+    ]);
+    bridge.exchangePluginChat({ ack: 0, sent: events });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sent.length, 2);
+    store.config.mcToQqEnabled = false;
+    bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-next', kind: 'join', player: 'Bob', players: ['Bob'] }] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sent.length, 2);
+    assert.throws(() => bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-bad', kind: 'join', player: 'Bob', players: 'Bob' }] }), /格式/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('配置密钥加密保存且读取时不回传', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {

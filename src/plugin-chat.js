@@ -9,8 +9,9 @@ export function matchesPluginKey(header, expected) {
 }
 
 export class PluginChatExchange {
-  constructor(onChat) {
+  constructor(onChat, onPresence = () => {}) {
     this.onChat = onChat;
+    this.onPresence = onPresence;
     this.outgoing = [];
     this.nextId = 1;
     this.epoch = randomUUID();
@@ -29,11 +30,20 @@ export class PluginChatExchange {
     this.lastSeen = Date.now();
     if (input.epoch === this.epoch) this.outgoing = this.outgoing.filter(item => item.id > input.ack);
     for (const item of input.sent) {
-      if (!item || typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{8,80}$/.test(item.id) || typeof item.player !== 'string' || !/^[A-Za-z0-9_]{3,16}$/.test(item.player) || typeof item.message !== 'string' || !item.message.trim() || item.message.length > 350) throw new Error('插件玩家消息格式无效');
+      if (!item || typeof item.id !== 'string' || !/^[A-Za-z0-9_-]{8,80}$/.test(item.id)) throw new Error('插件玩家事件格式无效');
+      const kind = item.kind ?? 'chat';
+      if (kind === 'chat') {
+        if (typeof item.player !== 'string' || !/^[A-Za-z0-9_]{3,16}$/.test(item.player) || typeof item.message !== 'string' || !item.message.trim() || item.message.length > 350) throw new Error('插件玩家消息格式无效');
+      } else if (kind === 'join' || kind === 'quit') {
+        const validName = name => typeof name === 'string' && name.length >= 1 && name.length <= 40 && !/[\u0000-\u001f\u007f]/u.test(name);
+        if (!validName(item.player) || !Array.isArray(item.players) || item.players.length > 200 || !item.players.every(validName)) throw new Error('插件玩家进出事件格式无效');
+      } else throw new Error('插件玩家事件类型无效');
       if (this.seen.has(item.id)) continue;
       this.seen.add(item.id);
       if (this.seen.size > 2000) this.seen.delete(this.seen.values().next().value);
-      Promise.resolve().then(() => this.onChat({ player: item.player, content: item.message })).catch(() => {});
+      Promise.resolve().then(() => kind === 'chat'
+        ? this.onChat({ player: item.player, content: item.message })
+        : this.onPresence({ kind, player: item.player, players: item.players })).catch(() => {});
     }
     return { epoch: this.epoch, receive: this.outgoing.slice(0, 20) };
   }

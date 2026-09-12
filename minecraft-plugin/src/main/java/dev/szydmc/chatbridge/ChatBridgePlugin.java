@@ -25,11 +25,13 @@ import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 public final class ChatBridgePlugin extends JavaPlugin implements Listener {
-    private record ChatLine(String id, String player, String message) {}
+    private record OutgoingLine(String id, String kind, String player, String message, List<String> players) {}
     private static final Map<String, NamedTextColor> COLORS = Map.ofEntries(
         Map.entry("black", NamedTextColor.BLACK), Map.entry("dark_blue", NamedTextColor.DARK_BLUE),
         Map.entry("dark_green", NamedTextColor.DARK_GREEN), Map.entry("dark_aqua", NamedTextColor.DARK_AQUA),
@@ -40,7 +42,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         Map.entry("red", NamedTextColor.RED), Map.entry("light_purple", NamedTextColor.LIGHT_PURPLE),
         Map.entry("yellow", NamedTextColor.YELLOW), Map.entry("white", NamedTextColor.WHITE)
     );
-    private final ConcurrentLinkedQueue<ChatLine> pending = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<OutgoingLine> pending = new ConcurrentLinkedQueue<>();
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicBoolean polling = new AtomicBoolean();
     private final String runId = UUID.randomUUID().toString().replace("-", "");
@@ -80,22 +82,56 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         String player = event.getPlayer().getName();
         String message = PlainTextComponentSerializer.plainText().serialize(event.message()).trim();
         if (message.isEmpty() || !player.matches("[A-Za-z0-9_]{3,16}")) return;
+        queue("chat", player, message.substring(0, Math.min(350, message.length())), List.of());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        String player = event.getPlayer().getName();
+        List<String> players = onlinePlayers(player, true);
+        queue("join", player, "", players);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        String player = event.getPlayer().getName();
+        List<String> players = onlinePlayers(player, false);
+        queue("quit", player, "", players);
+    }
+
+    private List<String> onlinePlayers(String subject, boolean joined) {
+        List<String> players = new ArrayList<>();
+        Bukkit.getOnlinePlayers().forEach(player -> {
+            if (!player.getName().equalsIgnoreCase(subject)) players.add(player.getName());
+        });
+        if (joined) players.add(subject);
+        players.sort(String.CASE_INSENSITIVE_ORDER);
+        return List.copyOf(players);
+    }
+
+    private void queue(String kind, String player, String message, List<String> players) {
         while (pending.size() >= 100) pending.poll();
-        pending.add(new ChatLine(runId + "-" + sequence.incrementAndGet(), player, message.substring(0, Math.min(350, message.length()))));
+        pending.add(new OutgoingLine(runId + "-" + sequence.incrementAndGet(), kind, player, message, players));
     }
 
     private void poll() {
         if (!isEnabled() || !polling.compareAndSet(false, true)) return;
         try {
-            List<ChatLine> batch = new ArrayList<>();
-            for (ChatLine line : pending) { if (batch.size() == 20) break; batch.add(line); }
+            List<OutgoingLine> batch = new ArrayList<>();
+            for (OutgoingLine line : pending) { if (batch.size() == 20) break; batch.add(line); }
             JsonObject request = new JsonObject();
             request.addProperty("ack", lastAck);
             request.addProperty("epoch", epoch);
             JsonArray sent = new JsonArray();
-            for (ChatLine line : batch) {
+            for (OutgoingLine line : batch) {
                 JsonObject item = new JsonObject();
-                item.addProperty("id", line.id()); item.addProperty("player", line.player()); item.addProperty("message", line.message());
+                item.addProperty("id", line.id()); item.addProperty("kind", line.kind()); item.addProperty("player", line.player());
+                if ("chat".equals(line.kind())) item.addProperty("message", line.message());
+                else {
+                    JsonArray players = new JsonArray();
+                    line.players().forEach(players::add);
+                    item.add("players", players);
+                }
                 sent.add(item);
             }
             request.add("sent", sent);
@@ -115,7 +151,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
                 Bukkit.getScheduler().runTask(this, () -> Bukkit.getOnlinePlayers().forEach(player -> player.sendMessage(text)));
                 lastAck = id;
             }
-            for (ChatLine line : batch) pending.remove(line);
+            for (OutgoingLine line : batch) pending.remove(line);
         } catch (Exception error) {
             long now = System.currentTimeMillis();
             if (now - lastWarn > 30000) {
