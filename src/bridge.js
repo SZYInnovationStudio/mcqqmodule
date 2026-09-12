@@ -137,10 +137,8 @@ export class Bridge {
 
   async sendMcPresenceToQq(event) {
     if (this.stopped || this.store.config.chatTransport !== 'plugin' || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
-    const players = event.players.join('、');
-    const roster = players.length > 1500 ? `${players.slice(0, 1500)}…（名单过长）` : players || '无';
     const action = event.kind === 'join' ? '进入了服务器' : '离开了服务器';
-    await this.sendToAllowedGroups(`[服务器] ${event.player} ${action}\n在线玩家（${event.players.length}）：${roster}`, 'mc-presence-error');
+    await this.sendToAllowedGroups(`[服务器] ${event.player} ${action}`, 'mc-presence-error');
   }
 
   async sendMcServerStatusToQq(status) {
@@ -237,7 +235,7 @@ export class Bridge {
             if (Number.isInteger(info.online) && info.players?.length === info.online) names = info.players;
           }
           if (!names) throw new Error('服务器没有提供完整的当前在线玩家名单');
-          reply = names.length ? `当前在线玩家：${names.join('，')}` : '当前没有在线玩家';
+          reply = `在线玩家（${names.length}）：${names.length ? names.join('，') : '无'}`;
         } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/mcunallbind、/motd、/list';
       }
       await this.send(event, reply.slice(0, 1800));

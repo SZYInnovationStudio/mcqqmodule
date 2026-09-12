@@ -10,7 +10,7 @@ QQ 群内建议先 @机器人。机器人只处理后台「允许使用的群 Op
 | `mcunbind` | `/mcunbind <玩家名>` | 只解绑自己名下的指定玩家 | `aqqbot whitelist unbind name <player>` |
 | `mcunallbind` | `/mcunallbind` | 逐条解绑自己名下的全部 MC 玩家；任一步未确认则停止 | 对每个玩家逐条发送 `aqqbot whitelist unbind name <player>` |
 | `motd` | `/motd` | 查询服务器介绍、版本、在线人数及服务器公开的玩家名单 | 无，使用 Minecraft 状态协议 |
-| `list` | `/list` | 只列出当前在线玩家名称 | `list`；必要时使用 Minecraft 状态协议补齐 |
+| `list` | `/list` | 显示当前在线人数和完整玩家名单；零人显示“无” | `list`；必要时使用 Minecraft 状态协议补齐 |
 
 例子：
 

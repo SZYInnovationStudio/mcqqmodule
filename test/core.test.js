@@ -14,7 +14,7 @@ import { makeQqTellraw, parseNameMap } from '../src/qq-chat.js';
 import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
 import { PluginChatExchange, PluginConnectionState, matchesPluginKey } from '../src/plugin-chat.js';
 
-test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
+test('/list 显示当前在线人数和完整名单，零人显示无且不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
@@ -22,14 +22,19 @@ test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家',
     store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const replies = [];
     const commands = [];
+    let rconOutput = 'There are 2 of a max of 100 players online: Alice, Bob';
     const bridge = new Bridge(store, {
-      rcon: async (_config, command) => { commands.push(command); return 'There are 2 of a max of 100 players online: Alice, Bob'; },
+      rcon: async (_config, command) => { commands.push(command); return rconOutput; },
       send: async (_event, message) => replies.push(message)
     });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, content: '/list' };
     await bridge.handleEvent(event);
     assert.deepEqual(commands, ['list']);
-    assert.equal(replies[0], '当前在线玩家：Alice，Bob');
+    assert.equal(replies[0], '在线玩家（2）：Alice，Bob');
+    rconOutput = 'There are 0 of a max of 100 players online:';
+    bridge.lastCommand.delete('USER_OPENID_123');
+    await bridge.handleEvent({ ...event, messageId: 'empty-list' });
+    assert.equal(replies[1], '在线玩家（0）：无');
     assert.deepEqual(parseOnlineList('There are 0 of a max of 100 players online:'), []);
     assert.deepEqual(parseOnlineList('当前有 2 名玩家在线：Alice，Bob'), ['Alice', 'Bob']);
     assert.equal(parseOnlineList('There are 3 of a max of 100 players online: Alice, Bob'), null);
@@ -179,7 +184,7 @@ test('插件模式 QQ → MC 排队给插件，不调用 RCON', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('插件玩家进出服播报包含当时的在线人数和名单，重复事件不重发', async () => {
+test('插件玩家进出服只播报玩家动作，重复事件不重发', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
@@ -196,8 +201,8 @@ test('插件玩家进出服播报包含当时的在线人数和名单，重复�
     bridge.exchangePluginChat({ ack: 0, sent: events });
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(sent, [
-      '[服务器] Alice 进入了服务器\n在线玩家（1）：Alice',
-      '[服务器] Alice 离开了服务器\n在线玩家（0）：无'
+      '[服务器] Alice 进入了服务器',
+      '[服务器] Alice 离开了服务器'
     ]);
     bridge.exchangePluginChat({ ack: 0, sent: events });
     await new Promise(resolve => setImmediate(resolve));
