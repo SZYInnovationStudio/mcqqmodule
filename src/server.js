@@ -7,7 +7,6 @@ import { Storage } from './storage.js';
 import { AccountStore } from './account.js';
 import { validateConfig, publicConfig } from './config.js';
 import { Bridge } from './bridge.js';
-import { McsmClient } from './mcsm.js';
 import { queryMotd } from './motd.js';
 import { rconCommand } from './rcon.js';
 
@@ -130,7 +129,7 @@ const server = http.createServer(async (req, res) => {
       bridge.restart();
       return json(res, 200, publicConfig(next));
     }
-    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.keys(store.state.bindings).length, mcsmConfigured: Boolean(store.config.mcsmUrl && store.config.mcsmApiKey && store.config.daemonId && store.config.instanceId), rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
+    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.keys(store.state.bindings).length, rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
     if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, store.listUsers().filter(user => user.binding).map(user => ({ qq: user.qq, ...user.binding })));
     if (path === '/api/users' && req.method === 'GET') return json(res, 200, store.listUsers());
     if (path === '/api/users' && req.method === 'POST') {
@@ -150,10 +149,6 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (path === '/api/audit' && req.method === 'GET') return json(res, 200, store.state.audit.slice(0, 50));
-    if (path === '/api/test/mcsm' && req.method === 'POST') {
-      const data = await new McsmClient(store.config).instance();
-      return json(res, 200, { status: data.status, name: data.config?.nickname ?? '', players: data.info?.currentPlayers ?? null });
-    }
     if (path === '/api/test/rcon' && req.method === 'POST') return json(res, 200, { output: await rconCommand(store.config, 'list') });
     if (path === '/api/test/motd' && req.method === 'POST') return json(res, 200, await queryMotd(store.config));
     return json(res, 404, { error: '未找到' });

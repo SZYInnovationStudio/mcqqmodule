@@ -14,9 +14,9 @@ async function refresh() {
   const [status, bindings, audit] = await Promise.all([api('status'), api('bindings'), api('audit')]);
   $('bot-status').textContent = status.bot;
   $('rcon-status').textContent = status.rconConfigured ? '已填写' : '未填写';
-  $('mcsm-status').textContent = status.mcsmConfigured ? '已填写' : '未填写';
-  $('counts').textContent = `${status.registered} / ${status.bindings}`;
-  if (!status.rconConfigured || !status.mcsmConfigured || status.bot === '未配置') {
+  $('registered-count').textContent = String(status.registered);
+  $('binding-count').textContent = String(status.bindings);
+  if (!status.rconConfigured || status.bot === '未配置') {
     $('next-title').textContent = '先把连接信息填好';
     $('next-description').textContent = '打开「修改信息」，按顺序填写并保存，再测试连接。';
     $('next-link').href = '/settings';

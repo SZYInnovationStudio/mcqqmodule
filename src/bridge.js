@@ -2,8 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { QQBot } from '@tencent-connect/qqbot-nodejs';
 import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
-import { McsmClient } from './mcsm.js';
-import { recentPlayerMessages } from './logs.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -13,7 +11,6 @@ export class Bridge {
     this.store = store;
     this.rcon = deps.rcon ?? rconCommand;
     this.motd = deps.motd ?? queryMotd;
-    this.mcsm = deps.mcsm ?? (config => new McsmClient(config));
     this.createBot = deps.createBot ?? (options => new QQBot(options));
     this.send = deps.send ?? ((event, message) => this.sendReply(event, message));
     this.pending = new Map();
@@ -81,7 +78,7 @@ export class Bridge {
     if (!allowed.includes(group) || !openid || !event.replyTarget) return;
     const message = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
-    if (!/^\/(?:register|confirm|bind|motd|logs)(?:\s|$)/i.test(message) && !isCode) return;
+    if (!/^\/(?:register|confirm|bind|motd)(?:\s|$)/i.test(message) && !isCode) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
       if (this.seen.has(key)) return;
@@ -103,11 +100,7 @@ export class Bridge {
         else if (/^\/motd\s*$/i.test(message)) {
           const info = await this.motd(this.store.config);
           reply = `MOTD：${info.motd || '（空）'}\n在线：${info.online ?? '?'} / ${info.max ?? '?'}${info.version ? `\n版本：${info.version}` : ''}`;
-        } else if (/^\/logs\s*$/i.test(message)) {
-          const log = await this.mcsm(this.store.config).outputLog();
-          const lines = recentPlayerMessages(log);
-          reply = lines.length ? `最近 2 分钟玩家消息：\n${lines.map(line => `[${line.time}] ${line.player}: ${line.message}`).join('\n')}` : '最近 2 分钟没有可识别的玩家消息（或面板日志缓冲区未包含这段记录）。';
-        } else reply = '命令格式：/register <QQ号>、/bind <玩家名>、/motd、/logs';
+        } else reply = '命令格式：/register <QQ号>、/bind <玩家名>、/motd';
       }
       await this.send(event, reply.slice(0, 1800));
     } catch (error) {
@@ -133,7 +126,7 @@ export class Bridge {
     this.store.register(openid, pending.qq, group);
     this.pending.delete(openid);
     this.store.audit('register', `OpenID ${openid} 自填并确认 QQ ${pending.qq}`);
-    return `QQ 号 ${pending.qq} 已登记。现在可以发送 /bind <玩家名>（例如 /bind implayer），或发送 /motd、/logs。`;
+    return `QQ 号 ${pending.qq} 已登记。现在可以发送 /bind <玩家名>（例如 /bind implayer），或发送 /motd。`;
   }
 
   async bindPlayer(openid, group, message) {

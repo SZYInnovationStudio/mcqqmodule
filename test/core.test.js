@@ -6,34 +6,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Storage } from '../src/storage.js';
 import { validateConfig, publicConfig } from '../src/config.js';
-import { recentPlayerMessages } from '../src/logs.js';
 import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
-import { McsmClient } from '../src/mcsm.js';
 
 test('配置密钥加密保存且读取时不回传', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    const config = validateConfig({ mcsmUrl: 'http://127.0.0.1:23333', mcsmApiKey: 'secret-key', rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123' });
+    const config = validateConfig({ rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123' });
     store.saveConfig(config);
     const raw = readFileSync(join(dir, 'config.enc'), 'utf8');
-    assert.ok(!raw.includes('secret-key'));
     assert.ok(!raw.includes('secret-pass'));
-    assert.equal(new Storage(dir).config.mcsmApiKey, 'secret-key');
-    assert.equal(publicConfig(config).mcsmApiKey, undefined);
-    assert.equal(publicConfig(config).mcsmApiKeySet, true);
     assert.equal(publicConfig(config).qqAppSecret, undefined);
     assert.equal(publicConfig(config).qqAppSecretSet, true);
-    assert.equal(validateConfig({ mcsmApiKey: '' }, config).mcsmApiKey, 'secret-key');
+    assert.equal(publicConfig({ ...config, mcsmApiKey: 'legacy-secret' }).mcsmApiKey, undefined);
+    assert.equal(validateConfig({ qqAppSecret: '' }, config).qqAppSecret, 'secret-bot');
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('近两分钟只返回带时间戳的玩家聊天', () => {
-  const now = new Date('2026-09-12T05:10:50Z');
-  const log = '[13:08:40 INFO]: <Old> 过期\n[13:10:14 INFO]: <vill> 你好\n[13:10:20 INFO]: Done\n[13:10:40] [Server thread/INFO]: <Alex> hi';
-  assert.deepEqual(recentPlayerMessages(log, now).map(item => item.player), ['vill', 'Alex']);
 });
 
 test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行', async () => {
@@ -117,19 +106,6 @@ test('同一 QQ 不可被其他 OpenID 冒用，管理员可修改和删除本�
     store.deleteUser('USER_OPENID_123');
     assert.deepEqual(store.listUsers(), []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('MCSManager 请求包含实例标识与官方要求的请求头', async () => {
-  let captured;
-  const client = new McsmClient({ mcsmUrl: 'http://panel.test', mcsmApiKey: 'key', daemonId: 'daemon', instanceId: 'instance' }, async (url, options) => {
-    captured = { url: String(url), options };
-    return { ok: true, json: async () => ({ status: 200, data: 'log' }) };
-  });
-  assert.equal(await client.outputLog(), 'log');
-  assert.match(captured.url, /\/api\/protected_instance\/outputlog/);
-  assert.match(captured.url, /apikey=key/);
-  assert.match(captured.url, /uuid=instance/);
-  assert.equal(captured.options.headers['X-Requested-With'], 'XMLHttpRequest');
 });
 
 function rconPacket(id, type, value) {
