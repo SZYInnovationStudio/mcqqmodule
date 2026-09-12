@@ -30,4 +30,4 @@ QQ 群内建议先 @机器人。机器人只处理后台「允许使用的群 Op
 
 QQ 用户触发游戏绑定/解绑时，RCON 只发送表中的 `aqqbot whitelist bind` 与 `aqqbot whitelist unbind name` 两种命令，不修改 MC 服务器配置。按玩家解绑的格式来自 [AQQBot 源码](https://github.com/alazeprt/AQQBot/blob/refactor/common/src/main/kotlin/top/alazeprt/aqqbot/command/sub/SubUnbind.kt)。插件版本和 RCON 响应需在真实服务器核对：解绑只有在服务器明确回复成功时才从本地记录删除，未确认时停下并保留记录。绑定发送后记录为「待服务器确认」。
 
-管理员网页的 `/terminal` 是独立的手动 RCON 控制台，登录后可输入 `list` 等服务器命令；群友不能使用。旧 QQ 指令名称 `/qq`、`/mcb`、`/unbind`、`/register`、`/confirm`、`/bind`、`/logs`、`/chat` 均不再使用。
+管理员网页的 `/terminal` 是独立的手动 RCON 控制台，登录后可输入 `list` 等服务器命令；群友不能使用。旧版 QQ 指令不再使用，也不需要配置。

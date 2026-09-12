@@ -108,6 +108,20 @@ test('同一 QQ 不可被其他 OpenID 冒用，管理员可修改和删除本�
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('旧版单玩家记录加载后保留并转换为多玩家结构', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    store.state.bindings.USER_OPENID_123 = { player: 'oldplayer', status: '已发送', updatedAt: '2026-01-01T00:00:00.000Z' };
+    store.saveState();
+    const restored = new Storage(dir);
+    assert.deepEqual(restored.getBindings('USER_OPENID_123').map(item => item.player), ['oldplayer']);
+    restored.recordBinding('USER_OPENID_123', 'newplayer', '已发送');
+    assert.equal(new Storage(dir).getBindings('USER_OPENID_123').length, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('一个 QQ 可绑定多个玩家，解绑仅移除指定玩家，最后才能解除 QQ 登记', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
@@ -140,6 +154,17 @@ test('RCON 未确认解绑时保留本地记录；其他 QQ 不能占用相同�
     const bridge = new Bridge(store, { rcon: async () => '', send: async () => {} });
     assert.match(await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind implayer'), /未明确确认/);
     assert.equal(store.getBindings('USER_OPENID_123').length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('服务器明确拒绝绑定时不占用玩家名', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    const bridge = new Bridge(store, { rcon: async () => '绑定失败：已达到上限', send: async () => {} });
+    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind implayer'), /未添加本地记录/);
+    assert.deepEqual(store.getBindings('USER_OPENID_123'), []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -149,6 +149,10 @@ export class Bridge {
     const player = match[1];
     this.store.assertPlayerAvailable(openid, player);
     const result = await this.rcon(this.store.config, `aqqbot whitelist bind ${qq} ${player}`);
+    if (/(?:失败|错误|无效|已存在|已绑定|不能|达到上限|too many|already exists|invalid|error|no permission)/i.test(result)) {
+      this.store.audit('bind-rejected', `群 ${group}，QQ ${qq}，玩家 ${player}：服务器拒绝绑定`);
+      return `服务器未确认绑定，未添加本地记录。服务器响应：${result.slice(0, 500)}`;
+    }
     this.store.recordBinding(openid, player, '已发送，待服务器确认');
     this.store.audit('bind-command', `群 ${group}，QQ ${qq}，玩家 ${player}：RCON 已执行`);
     return `已为玩家 ${player} 发送 AQQBot 绑定命令，使用的 QQ 号是 ${qq}。${result ? `\n服务器响应：${result.slice(0, 500)}` : '\n服务器未返回文本，请以 AQQBot/服务器实际绑定状态为准。'}`;
