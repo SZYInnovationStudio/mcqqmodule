@@ -24,6 +24,7 @@ const assets = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/settings': ['settings.html', 'text/html; charset=utf-8'],
   '/terminal': ['terminal.html', 'text/html; charset=utf-8'],
+  '/player-logs': ['player-logs.html', 'text/html; charset=utf-8'],
   '/users': ['users.html', 'text/html; charset=utf-8'],
   '/guide': ['guide.html', 'text/html; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
@@ -31,11 +32,13 @@ const assets = {
   '/pages.css': ['pages.css', 'text/css; charset=utf-8'],
   '/users.css': ['users.css', 'text/css; charset=utf-8'],
   '/terminal.css': ['terminal.css', 'text/css; charset=utf-8'],
+  '/player-logs.css': ['player-logs.css', 'text/css; charset=utf-8'],
   '/common.js': ['common.js', 'text/javascript; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/settings.js': ['settings.js', 'text/javascript; charset=utf-8'],
   '/users.js': ['users.js', 'text/javascript; charset=utf-8'],
   '/terminal.js': ['terminal.js', 'text/javascript; charset=utf-8'],
+  '/player-logs.js': ['player-logs.js', 'text/javascript; charset=utf-8'],
   '/favicon.svg': ['favicon.svg', 'image/svg+xml']
 };
 
@@ -152,6 +155,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (path === '/api/audit' && req.method === 'GET') return json(res, 200, store.state.audit.slice(0, 50));
+    if (path === '/api/player-logs' && req.method === 'GET') return json(res, 200, store.listPlayerLog());
     if (path === '/api/rcon/logs' && req.method === 'GET') return json(res, 200, store.listRconLog());
     if (path === '/api/rcon/command' && req.method === 'POST') {
       const input = await body(req);

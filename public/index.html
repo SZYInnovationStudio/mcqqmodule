@@ -14,7 +14,7 @@
   <main class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div>
-      <nav id="main-nav" class="nav" aria-label="主导航" hidden><a class="active" aria-current="page" href="/">总览</a><a href="/settings">修改信息</a><a href="/terminal">RCON 终端</a><a href="/users">已绑定用户</a><a href="/guide">使用教程</a></nav>
+      <nav id="main-nav" class="nav" aria-label="主导航" hidden><a class="active" aria-current="page" href="/">总览</a><a href="/settings">修改信息</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/users">已绑定用户</a><a href="/guide">使用教程</a></nav>
       <div class="top-actions"><span id="current-user" class="local-tag" hidden></span><button id="logout" class="ghost" hidden>退出</button></div>
     </header>
 
@@ -40,7 +40,7 @@
         <div class="status-card"><span>已登记 QQ</span><strong id="registered-count">—</strong><small>用户自行二次确认</small></div>
         <div class="status-card"><span>玩家绑定记录</span><strong id="binding-count">—</strong><small>发送过 RCON 命令</small></div>
       </div>
-      <div class="quick-grid"><a class="quick-card" href="/settings"><strong>修改信息</strong><span>填写服务器、RCON 和 QQ 官方 Bot 凭证</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/terminal"><strong>RCON 终端</strong><span>管理员发送服务器控制台命令并查看返回</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/users"><strong>已绑定用户</strong><span>查看登记的 QQ 号与玩家，必要时修改或删除</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/guide"><strong>使用教程</strong><span>按顺序设置，再到 QQ 群里登记和绑定</span><b aria-hidden="true">→</b></a></div>
+      <div class="quick-grid"><a class="quick-card" href="/settings"><strong>修改信息</strong><span>填写服务器、RCON 和 QQ 官方 Bot 凭证</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/terminal"><strong>RCON 终端</strong><span>管理员发送服务器控制台命令并查看返回</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/player-logs"><strong>玩家日志</strong><span>按类别查看 QQ 玩家命令及处理结果</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/users"><strong>已绑定用户</strong><span>查看登记的 QQ 号与玩家，必要时修改或删除</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/guide"><strong>使用教程</strong><span>按顺序设置，再到 QQ 群里登记和绑定</span><b aria-hidden="true">→</b></a></div>
       <div class="bottom-grid"><section class="panel"><div class="panel-head"><div><div class="eyebrow">玩家绑定</div><h2>最近记录</h2></div></div><div id="bindings" class="records empty">暂无绑定记录</div></section><section class="panel"><div class="panel-head"><div><div class="eyebrow">操作记录</div><h2>最近发生</h2></div></div><div id="audit" class="records empty">暂无操作记录</div></section></div>
     </div>
   </main>
