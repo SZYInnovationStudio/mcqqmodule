@@ -28,7 +28,26 @@ test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家',
     assert.deepEqual(commands, ['list']);
     assert.equal(replies[0], '当前在线玩家：Alice，Bob');
     assert.deepEqual(parseOnlineList('There are 0 of a max of 100 players online:'), []);
+    assert.deepEqual(parseOnlineList('当前有 2 名玩家在线：Alice，Bob'), ['Alice', 'Bob']);
     assert.equal(parseOnlineList('There are 3 of a max of 100 players online: Alice, Bob'), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('MC 玩家聊天主动发送到允许的 QQ 群，Bot 未连接时不推送', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123,OTHER_GROUP_123' };
+    const sent = [];
+    const bridge = new Bridge(store);
+    bridge.bot = { sendText: async (target, message) => sent.push({ target, message }) };
+    bridge.status = '已连接';
+    await bridge.forwardMcChat({ player: 'Alex', content: '大家好' });
+    assert.deepEqual(sent.map(item => item.message), ['[服务器] Alex:大家好', '[服务器] Alex:大家好']);
+    assert.deepEqual(sent[0].target, { scope: 'group', targetId: 'GROUP_OPENID_123' });
+    bridge.status = '未连接';
+    await bridge.forwardMcChat({ player: 'Alex', content: '不会发送' });
+    assert.equal(sent.length, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
