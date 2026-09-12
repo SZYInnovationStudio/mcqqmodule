@@ -13,10 +13,14 @@ function message(id, text, error = false) {
   node.classList.toggle('error', error);
 }
 
-function view(loggedIn) {
-  $('login-view').hidden = loggedIn;
-  $('dashboard').hidden = !loggedIn;
-  $('logout').hidden = !loggedIn;
+function view(mode, username = '') {
+  $('setup-view').hidden = mode !== 'setup';
+  $('login-view').hidden = mode !== 'login';
+  $('dashboard').hidden = mode !== 'dashboard';
+  $('logout').hidden = mode !== 'dashboard';
+  $('current-user').hidden = mode !== 'dashboard';
+  $('current-user').textContent = username;
+  if (mode === 'dashboard') $('account-username').value = username;
 }
 
 async function refresh() {
@@ -62,11 +66,41 @@ $('login-form').addEventListener('submit', async event => {
   const button = event.currentTarget.querySelector('button');
   button.disabled = true;
   try {
-    await api('login', { method: 'POST', body: JSON.stringify({ password: $('password').value }) });
+    const result = await api('login', { method: 'POST', body: JSON.stringify({ username: $('username').value, password: $('password').value }) });
     $('password').value = '';
-    view(true);
+    view('dashboard', result.username);
     await Promise.all([loadConfig(), refresh()]);
   } catch (error) { message('login-message', error.message, true); }
+  finally { button.disabled = false; }
+});
+
+$('setup-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if ($('setup-password').value !== $('setup-confirm').value) return message('setup-message', '两次输入的密码不一致', true);
+  const button = event.currentTarget.querySelector('button');
+  button.disabled = true;
+  try {
+    const result = await api('setup', { method: 'POST', body: JSON.stringify({ username: $('setup-username').value, password: $('setup-password').value }) });
+    $('setup-password').value = '';
+    $('setup-confirm').value = '';
+    view('dashboard', result.username);
+    await Promise.all([loadConfig(), refresh()]);
+  } catch (error) { message('setup-message', error.message, true); }
+  finally { button.disabled = false; }
+});
+
+$('account-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button');
+  button.disabled = true;
+  try {
+    const input = Object.fromEntries(new FormData(event.currentTarget));
+    const result = await api('account', { method: 'POST', body: JSON.stringify(input) });
+    event.currentTarget.reset();
+    $('username').value = result.username;
+    view('login');
+    message('login-message', '账户已修改，请重新登录。');
+  } catch (error) { message('account-message', error.message, true); }
   finally { button.disabled = false; }
 });
 
@@ -93,6 +127,11 @@ for (const button of document.querySelectorAll('[data-test]')) button.addEventLi
 });
 
 $('refresh').addEventListener('click', () => refresh().catch(error => message('config-message', error.message, true)));
-$('logout').addEventListener('click', async () => { await api('logout', { method: 'POST' }); view(false); });
+$('logout').addEventListener('click', async () => { await api('logout', { method: 'POST' }); view('login'); });
 
-Promise.all([loadConfig(), refresh()]).then(() => view(true)).catch(() => view(false));
+api('auth-state').then(async state => {
+  if (state.setupRequired) return view('setup');
+  if (!state.authenticated) return view('login');
+  view('dashboard', state.username);
+  await Promise.all([loadConfig(), refresh()]);
+}).catch(() => view('login'));

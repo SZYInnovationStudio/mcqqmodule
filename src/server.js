@@ -1,9 +1,10 @@
 import http from 'node:http';
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Storage } from './storage.js';
+import { AccountStore } from './account.js';
 import { validateConfig, publicConfig } from './config.js';
 import { Bridge } from './bridge.js';
 import { McsmClient } from './mcsm.js';
@@ -13,19 +14,14 @@ import { rconCommand } from './rcon.js';
 const HOST = '127.0.0.1';
 const PORT = 2556;
 const ORIGIN = `http://${HOST}:${PORT}`;
-const password = process.env.ADMIN_PASSWORD;
-if (!password || password.length < 12) {
-  console.error('请先设置至少 12 位的 ADMIN_PASSWORD 环境变量。');
-  process.exit(1);
-}
-
 const store = new Storage();
+const accounts = new AccountStore(store.dir);
 const bridge = new Bridge(store);
 bridge.start();
 const sessions = new Map();
 const attempts = new Map();
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
-const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
+const assets = { '/': ['index.html', 'text/html; charset=utf-8'], '/app.css': ['app.css', 'text/css; charset=utf-8'], '/account.css': ['account.css', 'text/css; charset=utf-8'], '/app.js': ['app.js', 'text/javascript; charset=utf-8'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
 
 function json(res, status, value) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -50,10 +46,10 @@ function authorized(req) {
   return true;
 }
 
-function correctPassword(input) {
-  const expected = createHash('sha256').update(password).digest();
-  const actual = createHash('sha256').update(String(input ?? '')).digest();
-  return timingSafeEqual(expected, actual);
+function loginSession(res) {
+  const token = randomBytes(32).toString('hex');
+  sessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
+  res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -71,20 +67,31 @@ const server = http.createServer(async (req, res) => {
     }
     if (!path.startsWith('/api/')) return json(res, 404, { error: '未找到' });
     if (req.method !== 'GET' && req.headers.origin !== ORIGIN) return json(res, 403, { error: '请求来源不允许' });
+    if (path === '/api/auth-state' && req.method === 'GET') {
+      const authenticated = accounts.configured && authorized(req);
+      return json(res, 200, { setupRequired: !accounts.configured, authenticated, username: authenticated ? accounts.username : null });
+    }
+    if (path === '/api/setup' && req.method === 'POST') {
+      if (accounts.configured) return json(res, 409, { error: '管理员账户已经设置' });
+      const input = await body(req);
+      accounts.setup(input.username, input.password);
+      loginSession(res);
+      store.audit('account', '首次设置管理员账户');
+      return json(res, 200, { ok: true, username: accounts.username });
+    }
     if (path === '/api/login' && req.method === 'POST') {
+      if (!accounts.configured) return json(res, 409, { error: '请先设置管理员账户' });
       const key = req.socket.remoteAddress;
       const recent = (attempts.get(key) ?? []).filter(t => t > Date.now() - 15 * 60 * 1000);
       if (recent.length >= 5) return json(res, 429, { error: '尝试过多，请 15 分钟后重试' });
       const input = await body(req);
-      if (!correctPassword(input.password)) {
+      if (!accounts.verify(input.username, input.password)) {
         recent.push(Date.now()); attempts.set(key, recent);
-        return json(res, 401, { error: '密码错误' });
+        return json(res, 401, { error: '用户名或密码错误' });
       }
       attempts.delete(key);
-      const token = randomBytes(32).toString('hex');
-      sessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
-      res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
-      return json(res, 200, { ok: true });
+      loginSession(res);
+      return json(res, 200, { ok: true, username: accounts.username });
     }
     if (!authorized(req)) return json(res, 401, { error: '请先登录' });
     if (path === '/api/logout' && req.method === 'POST') {
@@ -92,6 +99,14 @@ const server = http.createServer(async (req, res) => {
       if (token) sessions.delete(token);
       res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
       return json(res, 200, { ok: true });
+    }
+    if (path === '/api/account' && req.method === 'POST') {
+      const input = await body(req);
+      accounts.change(input.currentPassword, input.username, input.newPassword);
+      sessions.clear();
+      res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+      store.audit('account', '管理员修改了用户名或密码');
+      return json(res, 200, { ok: true, username: accounts.username });
     }
     if (path === '/api/config' && req.method === 'GET') return json(res, 200, publicConfig(store.config));
     if (path === '/api/config' && req.method === 'POST') {
@@ -112,7 +127,7 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/test/motd' && req.method === 'POST') return json(res, 200, await queryMotd(store.config));
     return json(res, 404, { error: '未找到' });
   } catch (error) {
-    const expected = /格式|无效|只接受|过大|配置|JSON/.test(error.message);
+    const expected = /格式|无效|只接受|过大|配置|JSON|密码|用户名|账户/.test(error.message);
     json(res, expected ? 400 : 502, { error: error.message });
   }
 });

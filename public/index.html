@@ -7,20 +7,29 @@
   <title>MC × QQ 管理后台</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/account.css">
   <script defer src="/app.js"></script>
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div>
-      <div class="top-actions"><span class="local-tag">本机 · 2556</span><button id="logout" class="ghost" hidden>退出登录</button></div>
+      <div class="top-actions"><span class="local-tag">本机 · 2556</span><span id="current-user" class="local-tag" hidden></span><button id="logout" class="ghost" hidden>退出登录</button></div>
     </header>
 
-    <section id="login-view" class="login-card">
+    <section id="setup-view" class="login-card" hidden>
+      <div class="eyebrow">首次使用</div>
+      <h1>设置管理员账户</h1>
+      <p>创建用于登录此管理后台的用户名和密码。设置后无需在启动时输入密码。</p>
+      <form id="setup-form"><label for="setup-username">用户名</label><input id="setup-username" name="username" autocomplete="username" required minlength="3" maxlength="32"><label for="setup-password">密码（至少 12 位）</label><input id="setup-password" name="password" type="password" autocomplete="new-password" required minlength="12"><label for="setup-confirm">确认密码</label><input id="setup-confirm" type="password" autocomplete="new-password" required minlength="12"><button type="submit" class="primary">创建账户并进入</button></form>
+      <p id="setup-message" class="message" role="status"></p>
+    </section>
+
+    <section id="login-view" class="login-card" hidden>
       <div class="eyebrow">管理员验证</div>
       <h1>登录管理后台</h1>
-      <p>输入启动服务时设置的 ADMIN_PASSWORD。</p>
-      <form id="login-form"><label for="password">管理员密码</label><input id="password" type="password" autocomplete="current-password" required minlength="12"><button type="submit" class="primary">登录</button></form>
+      <p>输入首次使用时设置的用户名和密码。</p>
+      <form id="login-form"><label for="username">用户名</label><input id="username" autocomplete="username" required><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required><button type="submit" class="primary">登录</button></form>
       <p id="login-message" class="message" role="status"></p>
     </section>
 
@@ -45,6 +54,7 @@
         </section>
         <div class="side-stack">
           <section class="panel"><div class="panel-head"><div><div class="eyebrow">连接诊断</div><h2>测试接入</h2></div></div><p>先保存配置，再分别测试。RCON 测试仅执行只读的 <code>list</code> 命令。</p><div class="test-buttons"><button data-test="rcon" class="secondary">测试 RCON</button><button data-test="mcsm" class="secondary">测试面板</button><button data-test="motd" class="secondary">测试 MOTD</button></div><pre id="test-output" class="result" role="status">等待测试…</pre></section>
+          <section class="panel"><div class="panel-head"><div><div class="eyebrow">管理员账户</div><h2>修改用户名或密码</h2></div></div><form id="account-form" class="stacked-form"><label>新用户名<input name="username" id="account-username" autocomplete="username" required minlength="3" maxlength="32"></label><label>当前密码<input name="currentPassword" type="password" autocomplete="current-password" required></label><label>新密码（留空则不修改）<input name="newPassword" type="password" autocomplete="new-password" minlength="12"></label><button type="submit" class="secondary">保存账户修改</button></form><p id="account-message" class="message" role="status"></p></section>
           <section class="panel"><div class="panel-head"><div><div class="eyebrow">QQ 指令</div><h2>使用流程</h2></div></div><ol class="steps"><li><code>/bind implayer</code><span>自动登记 QQ 号，获得 5 分钟绑定码</span></li><li><code>BIND-XXXXXX</code><span>本人在同一群发送，RCON 执行插件绑定指令</span></li><li><code>/motd</code> / <code>/logs</code><span>查询 MOTD 或近 2 分钟玩家消息</span></li></ol></section>
         </div>
       </div>

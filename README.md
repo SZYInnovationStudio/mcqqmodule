@@ -4,14 +4,15 @@
 
 ## 运行
 
-需要 Node.js 22 或更新版本。先设置足够强的管理员密码，再启动：
+需要 Node.js 22 或更新版本。在项目目录启动：
 
 ```powershell
-$env:ADMIN_PASSWORD = '请换成你自己的至少十二位长密码'
 npm start
 ```
 
-浏览器打开 `http://127.0.0.1:2556`，登录并填写 RCON 主机、端口和密码；MCSManager URL、API Key、Daemon ID、实例 UUID；Minecraft 主机/游戏端口；OneBot v11 正向 WebSocket 地址、Token 和允许使用的 QQ 群号。请不要把管理网页、`data/`、密码或 API Key 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
+浏览器打开 `http://127.0.0.1:2556`。首次使用时自行设置管理员用户名和至少 12 位密码；之后用该账户登录。登录后可在「修改用户名或密码」中更改，修改后需要重新登录。账户以加盐 scrypt 哈希保存在 Git 忽略的 `data/admin.json`，不再需要启动环境变量中的密码。
+
+随后填写 RCON 主机、端口和密码；MCSManager URL、API Key、Daemon ID、实例 UUID；Minecraft 主机/游戏端口；OneBot v11 正向 WebSocket 地址、Token 和允许使用的 QQ 群号。请不要把管理网页、`data/`、密码或 API Key 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
 
 MC 服务端的 `server.properties` 需要配置 `enable-rcon=true`、`rcon.port` 和 `rcon.password`，重启服务器后才会生效。RCON 端口尽量只允许本平台所在主机访问；远程连接建议使用专用内网或隧道，不要把明文 RCON 暴露到公网。面板 URL 建议使用 HTTPS。
 
