@@ -32,7 +32,7 @@ export class Bridge {
   start() {
     this.stopped = false;
     this.connect();
-    if (this.store.config.mcLogPath) {
+    if (this.store.config.mcToQqEnabled === true && this.store.config.mcLogPath) {
       this.logTail = new ChatLogTail(this.store.config.mcLogPath,
         chat => this.forwardMcChat(chat),
         error => this.store.audit('chat-log-error', `MC 聊天日志读取失败：${error.message}`));
@@ -86,7 +86,7 @@ export class Bridge {
   }
 
   async forwardMcChat({ player, content }) {
-    if (this.stopped || !this.bot || this.status !== '已连接') return;
+    if (this.stopped || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
     const groups = this.store.config.allowedGroups?.split(',').filter(Boolean) ?? [];
     for (const group of groups) {
       try {
@@ -96,6 +96,7 @@ export class Bridge {
   }
 
   async forwardQqChat(event, message) {
+    if (this.store.config.qqToMcEnabled !== true) return;
     const nickname = cleanChat(event.senderName || this.store.state.users[event.senderId]?.qq || '群友', 48);
     const command = qqTellraw(nickname, message);
     if (!command) return;

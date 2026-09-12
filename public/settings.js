@@ -7,6 +7,8 @@ async function loadConfig() {
     if (element.type === 'password') {
       element.value = '';
       element.placeholder = config[`${element.name}Set`] ? '已保存；留空保持不变' : '尚未设置';
+    } else if (element.type === 'checkbox') {
+      element.checked = config[element.name] === true;
     } else element.value = config[element.name] ?? '';
   }
 }
@@ -16,7 +18,11 @@ $('config-form').addEventListener('submit', async event => {
   const button = event.currentTarget.querySelector('button[type="submit"]');
   button.disabled = true;
   try {
-    await api('config', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))) });
+    const form = event.currentTarget;
+    const config = Object.fromEntries(new FormData(form));
+    config.mcToQqEnabled = form.elements.mcToQqEnabled.checked;
+    config.qqToMcEnabled = form.elements.qqToMcEnabled.checked;
+    await api('config', { method: 'POST', body: JSON.stringify(config) });
     await loadConfig();
     message('config-message', '信息已保存。现在可以在右侧测试连接。');
   } catch (error) { message('config-message', error.message, true); }

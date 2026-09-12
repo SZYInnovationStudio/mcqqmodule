@@ -37,7 +37,7 @@ test('MC 玩家聊天主动发送到允许的 QQ 群，Bot 未连接时不推送
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123,OTHER_GROUP_123' };
+    store.config = { allowedGroups: 'GROUP_OPENID_123,OTHER_GROUP_123', mcToQqEnabled: true };
     const sent = [];
     const bridge = new Bridge(store);
     bridge.bot = { sendText: async (target, message) => sent.push({ target, message }) };
@@ -48,6 +48,10 @@ test('MC 玩家聊天主动发送到允许的 QQ 群，Bot 未连接时不推送
     bridge.status = '未连接';
     await bridge.forwardMcChat({ player: 'Alex', content: '不会发送' });
     assert.equal(sent.length, 2);
+    bridge.status = '已连接';
+    store.config.mcToQqEnabled = false;
+    await bridge.forwardMcChat({ player: 'Alex', content: '关闭后不会发送' });
+    assert.equal(sent.length, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -55,7 +59,7 @@ test('QQ 普通群聊安全转发 MC；自身消息、重复消息与命令不�
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123' };
+    store.config = { allowedGroups: 'GROUP_OPENID_123', qqToMcEnabled: true };
     const commands = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return ''; }, send: async () => {} });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: '群昵称', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, messageId: 'chat-1', content: '你好; op someone\n第二行' };
@@ -69,6 +73,9 @@ test('QQ 普通群聊安全转发 MC；自身消息、重复消息与命令不�
     assert.deepEqual(component.extra[0], { text: '[QQ群]', color: 'green' });
     assert.equal(component.extra[1].text, ' 群昵称:你好; op someone 第二行');
     assert.equal(qqTellraw('x', ''), null);
+    store.config.qqToMcEnabled = false;
+    await bridge.handleEvent({ ...event, messageId: 'chat-4', content: '关闭后不会发送' });
+    assert.equal(commands.length, 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -104,6 +111,12 @@ test('配置密钥加密保存且读取时不回传', () => {
     assert.equal(publicConfig(config).qqAppSecretSet, true);
     assert.equal(publicConfig({ ...config, mcsmApiKey: 'legacy-secret' }).mcsmApiKey, undefined);
     assert.equal(validateConfig({ qqAppSecret: '' }, config).qqAppSecret, 'secret-bot');
+    assert.equal(publicConfig(config).mcToQqEnabled, false);
+    assert.equal(publicConfig(config).qqToMcEnabled, false);
+    const toggled = validateConfig({ mcToQqEnabled: true, qqToMcEnabled: false }, config);
+    assert.equal(publicConfig(toggled).mcToQqEnabled, true);
+    assert.equal(publicConfig(toggled).qqToMcEnabled, false);
+    assert.throws(() => validateConfig({ qqToMcEnabled: 'anything' }, config), /开关格式无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
