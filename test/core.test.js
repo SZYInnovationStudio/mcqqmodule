@@ -63,6 +63,15 @@ test('QQ 文本不会注入 RCON 命令或颜色；只允许模板控制样式',
   assert.throws(() => makeQqTellraw('${bad} ${userName} ${message}', { userName: 'x', message: 'y' }), /占位符/);
 });
 
+test('QQ 昵称附带的不可见状态字符不进入 MC 聊天', () => {
+  const command = makeQqTellraw('&a[${groupName}]&r ${userName}：${message}', {
+    userName: 'Beibing\u2067', groupName: '生存群', message: '我试试'
+  });
+  const payload = JSON.parse(command.slice('tellraw @a '.length));
+  assert.deepEqual(payload.extra, [{ text: '[生存群]', color: 'green' }, { text: ' Beibing：我试试' }]);
+  assert.ok(!command.includes('\u2067'));
+});
+
 test('群名称与成员名按 OpenID 映射，旧模板自动升级', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
