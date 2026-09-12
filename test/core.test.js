@@ -25,6 +25,23 @@ test('配置密钥加密保存且读取时不回传', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('管理员 RCON 执行日志加密持久化并记录成功与失败', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.recordRconCommand('say private-test', '服务器已执行 private-test', true, 'admin');
+    store.recordRconCommand('list', 'RCON 连接失败', false, 'admin');
+    const raw = readFileSync(join(dir, 'rcon-log.enc'), 'utf8');
+    assert.ok(!raw.includes('private-test'));
+    assert.ok(!raw.includes('RCON 连接失败'));
+    const entries = new Storage(dir).listRconLog();
+    assert.equal(entries.length, 2);
+    assert.deepEqual(entries.map(item => item.success), [false, true]);
+    assert.equal(entries[0].command, 'list');
+    assert.equal(entries[1].output, '服务器已执行 private-test');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {

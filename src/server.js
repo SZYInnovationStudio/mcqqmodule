@@ -152,14 +152,27 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (path === '/api/audit' && req.method === 'GET') return json(res, 200, store.state.audit.slice(0, 50));
+    if (path === '/api/rcon/logs' && req.method === 'GET') return json(res, 200, store.listRconLog());
     if (path === '/api/rcon/command' && req.method === 'POST') {
       const input = await body(req);
       if (typeof input.command !== 'string') return json(res, 400, { error: '命令格式无效' });
       const command = input.command.trim();
       if (!command || command.length > 512 || /[\r\n\0]/.test(command)) return json(res, 400, { error: '命令格式无效：只能发送一行，最多 512 个字符' });
-      const output = await rconCommand(store.config, command);
-      store.audit('rcon-terminal', '管理员从远程终端发送了一条 RCON 命令（内容未记录）');
-      return json(res, 200, { output });
+      let output;
+      try {
+        output = await rconCommand(store.config, command);
+      } catch (error) {
+        try { store.recordRconCommand(command, error.message, false, accounts.username); } catch { store.audit('rcon-log-error', 'RCON 失败记录保存异常'); }
+        throw error;
+      }
+      try {
+        store.recordRconCommand(command, output, true, accounts.username);
+      } catch {
+        store.audit('rcon-log-error', 'RCON 命令已发送，但执行日志保存失败');
+        return json(res, 200, { output, logSaved: false });
+      }
+      store.audit('rcon-terminal', '管理员从远程终端发送了一条 RCON 命令；详情见加密执行日志');
+      return json(res, 200, { output, logSaved: true });
     }
     if (path === '/api/test/rcon' && req.method === 'POST') return json(res, 200, { output: await rconCommand(store.config, 'list') });
     if (path === '/api/test/motd' && req.method === 'POST') return json(res, 200, await queryMotd(store.config));

@@ -22,6 +22,7 @@ export class Storage {
     this.keyFile = join(dir, 'master.key');
     this.stateFile = join(dir, 'state.json');
     this.configFile = join(dir, 'config.enc');
+    this.rconLogFile = join(dir, 'rcon-log.enc');
     if (!existsSync(this.keyFile)) writeFileSync(this.keyFile, randomBytes(32), { flag: 'wx', mode: 0o600 });
     this.key = readFileSync(this.keyFile);
     if (this.key.length !== 32) throw new Error('加密密钥文件格式无效');
@@ -33,6 +34,7 @@ export class Storage {
       this.state.bindings[openid] = Array.isArray(binding) ? binding : binding?.player ? [binding] : [];
     }
     this.config = this.loadConfig();
+    this.rconLog = this.loadRconLog();
   }
 
   loadConfig() {
@@ -54,6 +56,36 @@ export class Storage {
   saveState() {
     atomicWrite(this.stateFile, JSON.stringify(this.state, null, 2));
   }
+
+  loadRconLog() {
+    if (!existsSync(this.rconLogFile)) return [];
+    const payload = JSON.parse(readFileSync(this.rconLogFile, 'utf8'));
+    const decipher = createDecipheriv('aes-256-gcm', this.key, Buffer.from(payload.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
+    const entries = JSON.parse(Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8'));
+    if (!Array.isArray(entries)) throw new Error('RCON 日志格式无效');
+    return entries;
+  }
+
+  recordRconCommand(command, output, success, username) {
+    const result = String(output ?? '');
+    const entry = {
+      at: new Date().toISOString(),
+      username,
+      command,
+      success,
+      output: result.length > 8192 ? `${result.slice(0, 8192)}\n（后续内容已截断）` : result
+    };
+    const next = [entry, ...this.rconLog].slice(0, 100);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.key, iv);
+    const data = Buffer.concat([cipher.update(JSON.stringify(next), 'utf8'), cipher.final()]);
+    atomicWrite(this.rconLogFile, JSON.stringify({ iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }));
+    this.rconLog = next;
+    return entry;
+  }
+
+  listRconLog() { return this.rconLog.slice(0, 100); }
 
   qqOwner(qq, exceptOpenid = '') {
     return Object.entries(this.state.users).find(([openid, user]) => openid !== exceptOpenid && (user.qq ?? (/^\d{5,20}$/.test(openid) ? openid : '')) === qq)?.[0] ?? null;
