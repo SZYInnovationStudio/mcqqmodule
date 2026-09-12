@@ -88,7 +88,7 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
     const store = new Storage(dir);
     store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const replies = [];
-    const bridge = new Bridge(store, { motd: async () => ({ motd: '测试服务器', online: 1, max: 20 }), send: async (_event, message) => replies.push(message) });
+    const bridge = new Bridge(store, { motd: async () => ({ motd: '测试服务器', online: 5, max: 100, players: ['谢谢', 'xx', 'xx2', 'xx3'] }), send: async (_event, message) => replies.push(message) });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
     await bridge.handleEvent({ ...event, messageId: '1', content: '/motd' });
     assert.equal(store.state.users.USER_OPENID_123, undefined);
@@ -102,7 +102,8 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
     bridge.lastCommand.delete('USER_OPENID_123');
     await bridge.handleEvent({ ...event, messageId: '4', content: '/motd' });
     assert.match(replies.at(-1), /测试服务器/);
-    assert.match(replies.at(-1), /当前在线：1 人（上限 20 人）/);
+    assert.match(replies.at(-1), /当前在线：5 人（上限 100 人）/);
+    assert.match(replies.at(-1), /在线玩家：（谢谢，xx，xx2，xx3；仅显示服务器提供的 4 人）/);
     assert.ok(replies.at(-1).indexOf('当前在线') < replies.at(-1).indexOf('服务器介绍'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -273,14 +274,21 @@ test('RCON 鉴权后执行命令并取得输出', async () => {
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
-test('MOTD 状态协议读取描述和在线人数', async () => {
-  const payload = Buffer.from(JSON.stringify({ description: { text: 'Hello ', extra: [{ text: 'World' }] }, players: { online: 2, max: 10 }, version: { name: '1.21' } }));
-  const response = Buffer.concat([Buffer.from([payload.length + 2, 0, payload.length]), payload]);
+test('MOTD 状态协议读取描述、在线人数和服务器公开的玩家名单', async () => {
+  const encodeVarint = value => {
+    const bytes = [];
+    do { bytes.push((value & 0x7f) | (value > 127 ? 0x80 : 0)); value >>>= 7; } while (value);
+    return Buffer.from(bytes);
+  };
+  const payload = Buffer.from(JSON.stringify({ description: { text: 'Hello ', extra: [{ text: 'World' }] }, players: { online: 2, max: 10, sample: [{ name: '谢谢', id: '1' }, { name: 'xx', id: '2' }] }, version: { name: '1.21' } }));
+  const size = encodeVarint(payload.length);
+  const response = Buffer.concat([encodeVarint(1 + size.length + payload.length), Buffer.from([0]), size, payload]);
   const server = net.createServer(socket => socket.once('data', () => socket.write(response)));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const result = await queryMotd({ mcHost: '127.0.0.1', mcPort: server.address().port });
     assert.equal(result.motd, 'Hello World');
     assert.equal(result.online, 2);
+    assert.deepEqual(result.players, ['谢谢', 'xx']);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });

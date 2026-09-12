@@ -62,7 +62,10 @@ export function queryMotd({ mcHost, mcPort }, timeoutMs = 4000) {
       if (!size || size.next + size.value > data.length) return finish(new Error('MC 状态内容无效'));
       try {
         const status = JSON.parse(data.subarray(size.next, size.next + size.value).toString('utf8'));
-        finish(null, { motd: flatten(status.description).replace(/§./g, '').trim(), online: status.players?.online ?? null, max: status.players?.max ?? null, version: status.version?.name ?? '' });
+        const players = (Array.isArray(status.players?.sample) ? status.players.sample : [])
+          .map(item => typeof item?.name === 'string' ? item.name.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 64) : '')
+          .filter(Boolean).slice(0, 100);
+        finish(null, { motd: flatten(status.description).replace(/§./g, '').trim(), online: status.players?.online ?? null, max: status.players?.max ?? null, version: status.version?.name ?? '', players });
       } catch { finish(new Error('MC 状态 JSON 无效')); }
     });
   });

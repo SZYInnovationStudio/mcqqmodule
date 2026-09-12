@@ -112,7 +112,11 @@ export class Bridge {
         else if (/^\/mcunallbind(?:\s|$)/i.test(message)) reply = await this.unbindAllPlayers(openid, group, message);
         else if (/^\/motd\s*$/i.test(message)) {
           const info = await this.motd(this.store.config);
-          reply = `🎮 服务器状态\n👥 当前在线：${info.online ?? '?'} 人（上限 ${info.max ?? '?'} 人）\n\n📢 服务器介绍：\n${info.motd || '（空）'}${info.version ? `\n\n🧩 游戏版本：${info.version}` : ''}`;
+          const shown = (info.players ?? []).slice(0, 30);
+          const names = info.online === 0 ? '（暂无在线玩家）' : shown.length
+            ? `（${shown.join('，')}${Number(info.online) > shown.length ? `；仅显示服务器提供的 ${shown.length} 人` : ''}）`
+            : '（服务器未提供玩家名单）';
+          reply = `🎮 服务器状态\n👥 当前在线：${info.online ?? '?'} 人（上限 ${info.max ?? '?'} 人）\n🧑 在线玩家：${names}\n\n📢 服务器介绍：\n${info.motd || '（空）'}${info.version ? `\n\n🧩 游戏版本：${info.version}` : ''}`;
         } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/mcunallbind、/motd';
       }
       await this.send(event, reply.slice(0, 1800));
