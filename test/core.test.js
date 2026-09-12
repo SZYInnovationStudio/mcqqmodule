@@ -12,7 +12,7 @@ import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
 import { makeQqTellraw, parseNameMap } from '../src/qq-chat.js';
 import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
-import { PluginChatExchange, matchesPluginKey } from '../src/plugin-chat.js';
+import { PluginChatExchange, PluginConnectionState, matchesPluginKey } from '../src/plugin-chat.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
@@ -188,6 +188,7 @@ test('插件玩家进出服播报包含当时的在线人数和名单，重复�
     const bridge = new Bridge(store);
     bridge.bot = { sendText: async (_target, content) => sent.push(content) };
     bridge.status = '已连接';
+    bridge.pluginConnection.observe();
     const events = [
       { id: 'run12345-join', kind: 'join', player: 'Alice', players: ['Alice'] },
       { id: 'run12345-quit', kind: 'quit', player: 'Alice', players: [] }
@@ -206,6 +207,46 @@ test('插件玩家进出服播报包含当时的在线人数和名单，重复�
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 2);
     assert.throws(() => bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-bad', kind: 'join', player: 'Bob', players: 'Bob' }] }), /格式/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('插件心跳只在上线和连续断开 30 秒后触发状态变化', () => {
+  const monitor = new PluginConnectionState();
+  assert.equal(monitor.check(30_000), null);
+  assert.equal(monitor.observe(1_000), 'online');
+  assert.equal(monitor.observe(10_000), null);
+  assert.equal(monitor.check(39_999), null);
+  assert.equal(monitor.check(40_000), 'offline');
+  assert.equal(monitor.check(50_000), null);
+  assert.equal(monitor.observe(50_001), 'online');
+});
+
+test('开关服状态只在插件模式且 MC → QQ 开启时发群，Bot 未就绪先等候', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', mcToQqEnabled: true };
+    const bridge = new Bridge(store);
+    const sent = [];
+    bridge.exchangePluginChat({ ack: 0, sent: [] });
+    assert.equal(bridge.pendingServerStatus, 'online');
+    bridge.bot = { sendText: async (_target, content) => sent.push(content) };
+    bridge.status = '已连接';
+    await bridge.flushPendingServerStatus();
+    assert.deepEqual(sent, ['[服务器] MC 服务器已上线']);
+    bridge.exchangePluginChat({ ack: 0, sent: [] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sent.length, 1);
+    assert.equal(bridge.pluginConnection.check(bridge.pluginConnection.lastSeen + 30_000), 'offline');
+    await bridge.sendMcServerStatusToQq('offline');
+    assert.deepEqual(sent, [
+      '[服务器] MC 服务器已上线',
+      '[服务器] MC 服务器已离线（可能是关服或插件连接中断）'
+    ]);
+    store.config.mcToQqEnabled = false;
+    bridge.exchangePluginChat({ ack: 0, sent: [] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(sent.length, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

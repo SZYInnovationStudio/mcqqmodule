@@ -6,7 +6,7 @@ import { parseOnlineList } from './chat-relay.js';
 import { makeQqTellraw, parseNameMap } from './qq-chat.js';
 import { McsmOutputRelay, formatMcToQq } from './mcsm.js';
 import { resolveQqToMcTemplate, DEFAULT_MC_TO_QQ_TEMPLATE } from './config.js';
-import { PluginChatExchange } from './plugin-chat.js';
+import { PluginChatExchange, PluginConnectionState } from './plugin-chat.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -33,12 +33,23 @@ export class Bridge {
     this.bot = null;
     this.outputRelay = null;
     this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat), event => this.sendMcPresenceToQq(event));
+    this.pluginConnection = new PluginConnectionState();
+    this.pluginConnectionTimer = null;
+    this.pendingServerStatus = null;
     this.stopped = false;
   }
 
   start() {
     this.stopped = false;
     this.connect();
+    if (this.store.config.chatTransport === 'plugin') {
+      this.pluginConnectionTimer = setInterval(() => {
+        if (this.pluginConnection.check() === 'offline') {
+          void this.sendMcServerStatusToQq('offline').catch(error => this.store.audit('mc-server-status-error', error.message));
+        }
+      }, 5000);
+      this.pluginConnectionTimer.unref?.();
+    }
     if (this.store.config.mcToQqEnabled === true && this.store.config.chatTransport !== 'plugin') {
       this.outputRelay = this.createOutputRelay(
         this.store.config,
@@ -51,6 +62,9 @@ export class Bridge {
 
   stop() {
     this.stopped = true;
+    if (this.pluginConnectionTimer) clearInterval(this.pluginConnectionTimer);
+    this.pluginConnectionTimer = null;
+    this.pendingServerStatus = null;
     this.outputRelay?.stop();
     this.outputRelay = null;
     this.bot?.stop();
@@ -66,7 +80,11 @@ export class Bridge {
 
   exchangePluginChat(input) {
     if (this.store.config.chatTransport !== 'plugin') throw new Error('插件聊天模式未启用');
-    return this.pluginExchange.exchange(input);
+    const response = this.pluginExchange.exchange(input);
+    if (this.pluginConnection.observe() === 'online') {
+      void this.sendMcServerStatusToQq('online').catch(error => this.store.audit('mc-server-status-error', error.message));
+    }
+    return response;
   }
 
   connect() {
@@ -77,8 +95,16 @@ export class Bridge {
       bot.use?.(messageFilter({ skipSelfEcho: true, dedup: { windowMs: 10000 } }));
       this.bot = bot;
       this.status = '连接中';
-      bot.on('ready', () => { if (this.bot === bot) this.status = '已连接'; });
-      bot.on('resumed', () => { if (this.bot === bot) this.status = '已连接'; });
+      bot.on('ready', () => {
+        if (this.bot !== bot) return;
+        this.status = '已连接';
+        void this.flushPendingServerStatus().catch(error => this.store.audit('mc-server-status-error', error.message));
+      });
+      bot.on('resumed', () => {
+        if (this.bot !== bot) return;
+        this.status = '已连接';
+        void this.flushPendingServerStatus().catch(error => this.store.audit('mc-server-status-error', error.message));
+      });
       bot.on('error', error => {
         if (this.bot !== bot) return;
         this.status = '连接异常';
@@ -115,6 +141,22 @@ export class Bridge {
     const roster = players.length > 1500 ? `${players.slice(0, 1500)}…（名单过长）` : players || '无';
     const action = event.kind === 'join' ? '进入了服务器' : '离开了服务器';
     await this.sendToAllowedGroups(`[服务器] ${event.player} ${action}\n在线玩家（${event.players.length}）：${roster}`, 'mc-presence-error');
+  }
+
+  async sendMcServerStatusToQq(status) {
+    if (this.stopped || this.store.config.chatTransport !== 'plugin' || this.store.config.mcToQqEnabled !== true) return;
+    this.pendingServerStatus = status;
+    await this.flushPendingServerStatus();
+  }
+
+  async flushPendingServerStatus() {
+    if (!this.pendingServerStatus || this.stopped || !this.bot || this.status !== '已连接') return;
+    const status = this.pendingServerStatus;
+    this.pendingServerStatus = null;
+    const content = status === 'online'
+      ? '[服务器] MC 服务器已上线'
+      : '[服务器] MC 服务器已离线（可能是关服或插件连接中断）';
+    await this.sendToAllowedGroups(content, 'mc-server-status-error');
   }
 
   async sendToAllowedGroups(content, auditCategory) {

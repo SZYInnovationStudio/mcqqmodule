@@ -8,6 +8,27 @@ export function matchesPluginKey(header, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+export class PluginConnectionState {
+  constructor(timeoutMs = 30_000) {
+    this.timeoutMs = timeoutMs;
+    this.state = 'unknown';
+    this.lastSeen = 0;
+  }
+
+  observe(now = Date.now()) {
+    const changed = this.state !== 'online';
+    this.state = 'online';
+    this.lastSeen = now;
+    return changed ? 'online' : null;
+  }
+
+  check(now = Date.now()) {
+    if (this.state !== 'online' || now - this.lastSeen < this.timeoutMs) return null;
+    this.state = 'offline';
+    return 'offline';
+  }
+}
+
 export class PluginChatExchange {
   constructor(onChat, onPresence = () => {}) {
     this.onChat = onChat;
