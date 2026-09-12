@@ -14,7 +14,7 @@ npm start
 
 随后填写 RCON 主机、端口和密码；Minecraft 主机/游戏端口；QQ 官方 Bot 的 AppID、AppSecret 和允许使用的群 OpenID。不需要 MCSManager API。请不要把管理网页、`data/`、密码或 AppSecret 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
 
-页面分为五个入口：`/` 总览；`/settings` 修改连接信息和管理员账户；`/terminal` 仅管理员使用的 RCON 远程终端；`/users` 已登记及已绑定用户列表，可修改、删除本平台记录；`/guide` 使用教程。可直接照着 [COMMANDS.md](COMMANDS.md) 配置 QQ 侧的六个指令。本平台的 QQ 接入使用官方 Bot，不使用 OneBot；但 AQQBot 插件自身可能仍依赖 OneBot 后端，需在真实服务器确认。
+页面分为五个入口：`/` 总览；`/settings` 修改连接信息和管理员账户；`/terminal` 仅管理员使用的 RCON 远程终端，可查看最近 100 条命令、返回内容和失败原因；`/users` 已登记及已绑定用户列表，可修改、删除本平台记录；`/guide` 使用教程。RCON 执行日志加密保存在 Git 忽略的 `data/rcon-log.enc`，仅登录管理员可通过网页读取。可直接照着 [COMMANDS.md](COMMANDS.md) 配置 QQ 侧的六个指令。本平台的 QQ 接入使用官方 Bot，不使用 OneBot；但 AQQBot 插件自身可能仍依赖 OneBot 后端，需在真实服务器确认。
 
 MC 服务端的 `server.properties` 需要配置 `enable-rcon=true`、`rcon.port` 和 `rcon.password`，重启服务器后才会生效。RCON 端口尽量只允许本平台所在主机访问；远程连接建议使用专用内网或隧道，不要把明文 RCON 暴露到公网。
 
