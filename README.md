@@ -13,7 +13,11 @@ npm start
 
 浏览器打开 `http://127.0.0.1:2556`，登录并填写 RCON 主机、端口和密码；MCSManager URL、API Key、Daemon ID、实例 UUID；Minecraft 主机/游戏端口；OneBot v11 正向 WebSocket 地址、Token 和允许使用的 QQ 群号。请不要把管理网页、`data/`、密码或 API Key 暴露到公网。RCON 需在 MC 服务端启用，并设置强密码。
 
+MC 服务端的 `server.properties` 需要配置 `enable-rcon=true`、`rcon.port` 和 `rcon.password`，重启服务器后才会生效。RCON 端口尽量只允许本平台所在主机访问；远程连接建议使用专用内网或隧道，不要把明文 RCON 暴露到公网。面板 URL 建议使用 HTTPS。
+
 QQ 群内命令：`/bind <玩家名>`、`/motd`、`/logs`。首次发送命令时自动登记消息事件中的 QQ 号。绑定码仅对应发起人的 QQ 号与群，5 分钟有效。绑定确认后通过 RCON 执行 `aqqbot whitelist bind <QQ号> <玩家名>`；RCON 输出会显示在回复中，但真实绑定结果仍以 AQQBot/服务器状态为准。`/logs` 读取 MCSManager 的控制台输出缓冲区，仅能查询缓冲区内有时间戳的玩家聊天消息，最多显示最近 20 条。
+
+请将 OneBot v11 的**正向 WebSocket 根路径 `/`**配置给本平台，以便同时接收事件与发送消息。若现有 AQQBot 也会响应同一群内的 `/bind`，需避免两个机器人功能同时处理该指令。管理后台目前只绑定本机地址，需在运行该服务的电脑上打开；绑定码在服务重启后会失效。没有真实连接信息时，自动测试只验证模拟协议交互，不代表已经连通你的 MC 服务器或 QQ Bot。
 
 MCSManager 官方资料：[API Key](https://docs.mcsmanager.com/apis/get_apikey.html)、[实例 API](https://docs.mcsmanager.com/zh_cn/apis/api_instance.html)。AQQBot 基于 [OneBot v11](https://github.com/alazeprt/AQQBot)。
 
