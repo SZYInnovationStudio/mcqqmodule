@@ -102,6 +102,8 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
     bridge.lastCommand.delete('USER_OPENID_123');
     await bridge.handleEvent({ ...event, messageId: '4', content: '/motd' });
     assert.match(replies.at(-1), /测试服务器/);
+    assert.match(replies.at(-1), /当前在线：1 人（上限 20 人）/);
+    assert.ok(replies.at(-1).indexOf('当前在线') < replies.at(-1).indexOf('服务器介绍'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
