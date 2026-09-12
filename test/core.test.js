@@ -42,6 +42,24 @@ test('管理员 RCON 执行日志加密持久化并记录成功与失败', () =>
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('QQ 玩家命令日志单独加密保存，最多保留 200 条', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    for (let index = 0; index < 205; index++) {
+      store.recordPlayerCommand({ openid: 'USER_OPENID_123', group: 'GROUP_OPENID_123', qq: '36000000', command: `/motd ${index}`, category: '服务器查询', status: '已回复', result: '在线：1 / 20' });
+    }
+    const raw = readFileSync(join(dir, 'player-log.enc'), 'utf8');
+    assert.ok(!raw.includes('USER_OPENID_123'));
+    assert.ok(!raw.includes('/motd 204'));
+    const entries = new Storage(dir).listPlayerLog();
+    assert.equal(entries.length, 200);
+    assert.equal(entries[0].command, '/motd 204');
+    assert.equal(entries.at(-1).command, '/motd 5');
+    assert.equal(entries[0].category, '服务器查询');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
@@ -215,11 +233,16 @@ test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async
       assert.match(replies.at(-1), /\/qqbind/);
     }
     assert.deepEqual(calls, []);
+    assert.equal(store.listPlayerLog().length, 5);
+    assert.equal(store.listPlayerLog()[0].status, '未登记拦截');
+    assert.equal(store.listPlayerLog()[0].category, '服务器查询');
     bridge.lastCommand.clear();
     await bridge.handleEvent({ ...event, messageId: 'legacy', content: '/register 36000000' });
     assert.equal(replies.length, 5);
     await bridge.handleEvent({ ...event, messageId: 'qqbind', content: '/qqbind 36000000' });
     assert.match(replies.at(-1), /BIND-[A-F0-9]{6}/);
+    assert.equal(store.listPlayerLog()[0].category, 'QQ 登记');
+    assert.ok(!store.listPlayerLog()[0].result.includes(replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0]));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

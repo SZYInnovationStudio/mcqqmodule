@@ -5,6 +5,11 @@ import { queryMotd } from './motd.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
+const COMMAND_CATEGORY = {
+  qqbind: 'QQ 登记', qqconfirm: 'QQ 登记', qqunbind: 'QQ 登记',
+  mcbind: 'MC 绑定', mcunbind: 'MC 解绑', mcunallbind: 'MC 解绑', motd: '服务器查询'
+};
+const redactCode = value => String(value ?? '').replace(/BIND-[A-F0-9]{6}/gi, 'BIND-******');
 
 export class Bridge {
   constructor(store, deps = {}) {
@@ -90,13 +95,17 @@ export class Bridge {
     const now = Date.now();
     if (!ownCode && (this.lastCommand.get(openid) ?? 0) + 1500 > now) return;
     this.lastCommand.set(openid, now);
+    const commandName = isCode ? 'qqconfirm' : message.split(/\s+/)[0].slice(1).toLowerCase();
+    const qqBefore = this.store.state.users[openid]?.qq;
+    let logStatus = '已回复';
+    let logResult = '';
     try {
       let reply;
       if (/^\/qqbind(?:\s|$)/i.test(message)) reply = this.beginRegistration(openid, group, message);
       else if (isCode) reply = this.confirmRegistration(openid, group, submittedCode);
       else {
         const user = this.store.state.users[openid];
-        if (!user?.qq) reply = '请先登记 QQ 号：/qqbind <你的QQ号>。按提示二次确认后，重新发送刚才的命令。';
+        if (!user?.qq) { reply = '请先登记 QQ 号：/qqbind <你的QQ号>。按提示二次确认后，重新发送刚才的命令。'; logStatus = '未登记拦截'; }
         else if (/^\/qqunbind(?:\s|$)/i.test(message)) reply = this.unbindQq(openid, message);
         else if (/^\/mcbind(?:\s|$)/i.test(message)) reply = await this.bindPlayer(openid, group, message);
         else if (/^\/mcunbind(?:\s|$)/i.test(message)) reply = await this.unbindPlayer(openid, group, message);
@@ -107,9 +116,25 @@ export class Bridge {
         } else reply = '命令格式：/qqbind <QQ号>、/qqunbind、/mcbind <玩家名>、/mcunbind <玩家名>、/mcunallbind、/motd';
       }
       await this.send(event, reply.slice(0, 1800));
+      logResult = reply;
     } catch (error) {
+      logStatus = '失败';
+      logResult = `操作失败：${error.message}`;
       this.store.audit('command-error', `${openid}：${error.message}`);
       await this.send(event, `操作失败：${error.message}`);
+    } finally {
+      try {
+        this.store.recordPlayerCommand({
+          openid, group,
+          qq: this.store.state.users[openid]?.qq ?? qqBefore ?? '',
+          command: redactCode(message),
+          category: COMMAND_CATEGORY[commandName],
+          status: logStatus,
+          result: redactCode(logResult)
+        });
+      } catch {
+        try { this.store.audit('player-log-error', '玩家命令日志保存失败'); } catch {}
+      }
     }
   }
 

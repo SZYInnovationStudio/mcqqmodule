@@ -23,6 +23,7 @@ export class Storage {
     this.stateFile = join(dir, 'state.json');
     this.configFile = join(dir, 'config.enc');
     this.rconLogFile = join(dir, 'rcon-log.enc');
+    this.playerLogFile = join(dir, 'player-log.enc');
     if (!existsSync(this.keyFile)) writeFileSync(this.keyFile, randomBytes(32), { flag: 'wx', mode: 0o600 });
     this.key = readFileSync(this.keyFile);
     if (this.key.length !== 32) throw new Error('加密密钥文件格式无效');
@@ -35,6 +36,7 @@ export class Storage {
     }
     this.config = this.loadConfig();
     this.rconLog = this.loadRconLog();
+    this.playerLog = this.loadPlayerLog();
   }
 
   loadConfig() {
@@ -86,6 +88,38 @@ export class Storage {
   }
 
   listRconLog() { return this.rconLog.slice(0, 100); }
+
+  loadPlayerLog() {
+    if (!existsSync(this.playerLogFile)) return [];
+    const payload = JSON.parse(readFileSync(this.playerLogFile, 'utf8'));
+    const decipher = createDecipheriv('aes-256-gcm', this.key, Buffer.from(payload.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
+    const entries = JSON.parse(Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8'));
+    if (!Array.isArray(entries)) throw new Error('玩家命令日志格式无效');
+    return entries;
+  }
+
+  recordPlayerCommand({ openid, group, qq, command, category, status, result }) {
+    const entry = {
+      at: new Date().toISOString(),
+      openid,
+      group,
+      qq: qq ?? '',
+      command: String(command).slice(0, 512),
+      category,
+      status,
+      result: String(result ?? '').slice(0, 2000)
+    };
+    const next = [entry, ...this.playerLog].slice(0, 200);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.key, iv);
+    const data = Buffer.concat([cipher.update(JSON.stringify(next), 'utf8'), cipher.final()]);
+    atomicWrite(this.playerLogFile, JSON.stringify({ iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: data.toString('base64') }));
+    this.playerLog = next;
+    return entry;
+  }
+
+  listPlayerLog() { return this.playerLog.slice(0, 200); }
 
   qqOwner(qq, exceptOpenid = '') {
     return Object.entries(this.state.users).find(([openid, user]) => openid !== exceptOpenid && (user.qq ?? (/^\d{5,20}$/.test(openid) ? openid : '')) === qq)?.[0] ?? null;
