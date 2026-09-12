@@ -18,7 +18,7 @@ npm start
 
 MC 服务端的 `server.properties` 需要配置 `enable-rcon=true`、`rcon.port` 和 `rcon.password`，重启服务器后才会生效。RCON 端口尽量只允许本平台所在主机访问；远程连接建议使用专用内网或隧道，不要把明文 RCON 暴露到公网。
 
-QQ 群内命令：`/qqbind <QQ号>`、`/qqunbind`、`/mcbind <玩家名>`、`/mcunbind <玩家名>`、`/mcunallbind`、`/motd`。用户先在群里 @机器人发送 `/qqbind 36000000`，机器人回显号码并给出临时登记码。同一 OpenID 的用户在同群 5 分钟内直接发送登记码后自动登记，不需管理员审核。**这只二次确认填写的号码，不能证明号码归属，也不会执行玩家绑定。**登记后再发 `/mcbind <玩家名>`，此时才通过 RCON 执行 `aqqbot whitelist bind <登记QQ号> <玩家名>`。`/mcunbind` 与 `/mcunallbind` 仅按玩家逐条发送 `aqqbot whitelist unbind name <玩家名>`；不会修改 MC 服务器配置。所有业务命令先要求登记 QQ，`/qqbind` 本身例外。按用户要求，不提供聊天日志查询。
+QQ 群内命令：`/qqbind <QQ号>`、`/qqunbind`、`/mcbind <玩家名>`、`/mcunbind <玩家名>`、`/mcunallbind`、`/motd`。用户先在群里 @机器人发送 `/qqbind 36000000`，机器人回显号码并给出临时登记码。同一 OpenID 的用户在同群 5 分钟内直接发送登记码后自动登记，不需管理员审核。**这只二次确认填写的号码，不能证明号码归属，也不会执行玩家绑定。**登记后再发 `/mcbind <玩家名>`，此时才通过 RCON 执行 `aqqbot whitelist bind <qq> <player>`，其中占位符分别代表已登记的 QQ 号和玩家名。`/mcunbind` 与 `/mcunallbind` 仅按玩家逐条发送 `aqqbot whitelist unbind name <player>`；不会修改 MC 服务器配置。所有业务命令先要求登记 QQ，`/qqbind` 本身例外。按用户要求，不提供聊天日志查询。
 
 QQ 官方 Bot 通过腾讯 SDK 的 WebSocket Gateway 连接。若不知道群 OpenID，先保存 AppID/AppSecret，在群里 @机器人发消息，然后到总览“操作记录”查看发现的群 OpenID。管理后台只绑定本机地址；确认码在服务重启后失效。管理员在 `/users` 修改或删除用户，仅影响本平台记录，**不会自动修改或解除服务器 AQQBot 绑定**。没有真实连接信息时，自动测试只验证模拟协议交互，不代表已连通你的 MC 服务器或 QQ Bot。
 
