@@ -1,6 +1,6 @@
 # 上传到 Linux 服务器长期运行
 
-这个压缩包只有程序源码、网页、依赖锁文件和教程，**不包含**本机的 `data/`、管理员账户、QQ Bot 密钥、RCON 密码、日志、`node_modules` 或 Git 历史。上传后在服务器上重新填写配置。下面以有 SSH 权限的 Linux 服务器为例。
+`mc-qq-bridge-full-private-2026-09-12.zip` 是**完整私有迁移包**：包含程序、网页、`data/` 内的管理员账户与加密配置、`master.key`、日志以及现有 `node_modules`。它不包含 Git 历史或旧压缩包。请只通过私密渠道上传，不要公开分享或提交到 Git。下面以有 SSH 权限的 Linux 服务器为例。
 
 ## 1. 上传并安装
 
@@ -11,17 +11,19 @@ node -v
 npm -v
 ```
 
-把 `mc-qq-bridge-2026-09-12.zip` 上传到服务器的用户目录，然后执行：
+把 `mc-qq-bridge-full-private-2026-09-12.zip` 上传到服务器的用户目录，然后执行：
 
 ```sh
 mkdir -p "$HOME/mc-qq-bridge"
-unzip mc-qq-bridge-2026-09-12.zip -d "$HOME/mc-qq-bridge"
+unzip mc-qq-bridge-full-private-2026-09-12.zip -d "$HOME/mc-qq-bridge"
 cd "$HOME/mc-qq-bridge"
 npm ci --omit=dev
 npm test
+chmod 700 data
+chmod 600 data/*
 ```
 
-`npm ci` 会按包内的 `package-lock.json` 安装适用于**服务器系统**的依赖，所以不要上传 Windows 上的 `node_modules`。测试通过后再设置长期运行。
+完整包虽然带有本机 `node_modules`，但上传到 Linux 后仍须运行 `npm ci`，按包内的 `package-lock.json` 重装适用于**服务器系统**的依赖；此操作不会删除 `data/`。测试通过后再设置长期运行。
 
 ## 2. 设为开机自启（systemd）
 
@@ -49,7 +51,7 @@ sudo systemctl status mc-qq-bridge --no-pager
 sudo journalctl -u mc-qq-bridge -n 50 --no-pager
 ```
 
-项目目录必须归 `User=` 指定的用户所有，程序才能在第一次运行时创建 `data/`。服务启动后会一直在服务器运行，退出或机器重启后由 systemd 拉起。
+项目目录及 `data/` 必须归 `User=` 指定的用户所有，程序才能读写配置和日志。如果原本机服务还在用同一 QQ Bot 凭证，请在启用远程服务前停止本机旧服务，避免两个实例同时处理消息。服务启动后会一直在服务器运行，退出或机器重启后由 systemd 拉起。
 
 ## 3. 安全打开管理网页
 
@@ -65,13 +67,13 @@ ssh -N -L 127.0.0.1:2556:127.0.0.1:2556 your_login_user@your_server_address
 
 ## 4. 首次设置与日常使用
 
-1. 首次打开后台，自己创建管理员用户名和密码。
-2. 进入「修改信息」，填写 Minecraft 游戏地址/端口、RCON 地址/端口/密码、QQ 官方 Bot 的 AppID/AppSecret。若 MC 服务与本平台在同一台服务器，通常可将相应地址填 `127.0.0.1`；若 MC 在别的机器或容器内，填服务器能访问到的实际地址。
+1. 完整包已带原管理员账户，直接用原用户名和密码登录；不会再出现首次设置页面。
+2. 进入「修改信息」，核对已迁移的 Minecraft、RCON 和 QQ 官方 Bot 配置。旧配置里的 `127.0.0.1` 在新机器上指**新服务器自身**；若 MC 在别的机器或容器内，必须改成新服务器能访问到的地址。
 3. 先测试 MOTD 和 RCON。QQ Bot 连上后，到允许的群 @机器人发一条消息，在总览操作记录找到群 OpenID，填进允许群列表并保存。
 4. 在 QQ 官方 Bot 平台按 [COMMANDS.md](COMMANDS.md) 添加六个指令名；群友先 `/qqbind <QQ号>` 并按提示二次确认，再使用 `/mcbind <玩家名>`、`/motd` 等命令。
 5. 管理员可在「玩家日志」查看分类记录，在「RCON 终端」手动发令并查看管理员执行日志。
 
-这些连接信息**不在压缩包里**，只会在服务器首次填写后保存到服务器的 `data/`。**请单独、安全地备份服务器上的整个 `data/` 目录**，尤其是 `master.key`：丢失它就无法解密已有配置和日志。不要把 `data/` 放进公开网盘或 Git 仓库。
+这些连接信息**已经在完整私有压缩包的 `data/` 中**。部署完成后，删除服务器上传目录里多余的私有 ZIP 副本，并**单独、安全地备份服务器上的整个 `data/` 目录**，尤其是 `master.key`：丢失它就无法解密已有配置和日志。不要把完整包或 `data/` 放进公开网盘或 Git 仓库。
 
 ## 更新程序
 
