@@ -24,6 +24,7 @@ const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const assets = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/settings': ['settings.html', 'text/html; charset=utf-8'],
+  '/users': ['users.html', 'text/html; charset=utf-8'],
   '/guide': ['guide.html', 'text/html; charset=utf-8'],
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
   '/account.css': ['account.css', 'text/css; charset=utf-8'],
@@ -31,6 +32,7 @@ const assets = {
   '/common.js': ['common.js', 'text/javascript; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/settings.js': ['settings.js', 'text/javascript; charset=utf-8'],
+  '/users.js': ['users.js', 'text/javascript; charset=utf-8'],
   '/favicon.svg': ['favicon.svg', 'image/svg+xml']
 };
 
@@ -128,7 +130,24 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, publicConfig(next));
     }
     if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, bindings: Object.keys(store.state.bindings).length, mcsmConfigured: Boolean(store.config.mcsmUrl && store.config.mcsmApiKey && store.config.daemonId && store.config.instanceId), rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword) });
-    if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, Object.entries(store.state.bindings).map(([qq, data]) => ({ qq, ...data })));
+    if (path === '/api/bindings' && req.method === 'GET') return json(res, 200, store.listUsers().filter(user => user.binding).map(user => ({ qq: user.qq, ...user.binding })));
+    if (path === '/api/users' && req.method === 'GET') return json(res, 200, store.listUsers());
+    if (path === '/api/users' && req.method === 'POST') {
+      const input = await body(req);
+      const openid = String(input.openid ?? '');
+      if (!/^[A-Za-z0-9_-]{5,128}$/.test(openid)) return json(res, 400, { error: 'OpenID 格式无效' });
+      store.updateUser(openid, String(input.qq ?? '').trim(), String(input.player ?? '').trim());
+      store.audit('admin-update', `管理员修改了 OpenID ${openid} 的本地记录`);
+      return json(res, 200, { ok: true });
+    }
+    if (path === '/api/users/delete' && req.method === 'POST') {
+      const input = await body(req);
+      const openid = String(input.openid ?? '');
+      if (!/^[A-Za-z0-9_-]{5,128}$/.test(openid)) return json(res, 400, { error: 'OpenID 格式无效' });
+      store.deleteUser(openid);
+      store.audit('admin-delete', `管理员删除了 OpenID ${openid} 的本地记录；服务器 AQQBot 未自动解绑`);
+      return json(res, 200, { ok: true });
+    }
     if (path === '/api/audit' && req.method === 'GET') return json(res, 200, store.state.audit.slice(0, 50));
     if (path === '/api/test/mcsm' && req.method === 'POST') {
       const data = await new McsmClient(store.config).instance();
@@ -138,7 +157,7 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/test/motd' && req.method === 'POST') return json(res, 200, await queryMotd(store.config));
     return json(res, 404, { error: '未找到' });
   } catch (error) {
-    const expected = /格式|无效|只接受|过大|配置|JSON|密码|用户名|账户/.test(error.message);
+    const expected = /格式|无效|只接受|过大|配置|JSON|密码|用户名|账户|用户不存在|已被/.test(error.message);
     json(res, expected ? 400 : 502, { error: error.message });
   }
 });

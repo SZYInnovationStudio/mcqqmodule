@@ -49,18 +49,55 @@ export class Storage {
     atomicWrite(this.stateFile, JSON.stringify(this.state, null, 2));
   }
 
-  register(qq) {
-    if (!/^\d{5,20}$/.test(qq)) throw new Error('QQ 号格式无效');
-    if (!this.state.users[qq]) {
-      this.state.users[qq] = { registeredAt: new Date().toISOString() };
-      this.saveState();
-      return true;
-    }
-    return false;
+  qqOwner(qq, exceptOpenid = '') {
+    return Object.entries(this.state.users).find(([openid, user]) => openid !== exceptOpenid && (user.qq ?? (/^\d{5,20}$/.test(openid) ? openid : '')) === qq)?.[0] ?? null;
   }
 
-  recordBinding(qq, player, status) {
-    this.state.bindings[qq] = { player, status, updatedAt: new Date().toISOString() };
+  register(openid, qq, group) {
+    if (!openid || !/^[A-Za-z0-9_-]{5,128}$/.test(openid)) throw new Error('OpenID 格式无效');
+    if (!/^\d{5,20}$/.test(qq)) throw new Error('QQ 号格式无效');
+    if (this.qqOwner(qq, openid)) throw new Error('QQ 号已被其他用户登记');
+    if (this.state.users[openid]) throw new Error('此 OpenID 已登记');
+    this.state.users[openid] = { qq, group, registeredAt: new Date().toISOString(), source: 'self-confirmed' };
+    this.saveState();
+  }
+
+  recordBinding(openid, player, status) {
+    if (!this.state.users[openid]) throw new Error('用户尚未登记');
+    this.state.bindings[openid] = { player, status, updatedAt: new Date().toISOString() };
+    this.saveState();
+  }
+
+  listUsers() {
+    return Object.entries(this.state.users).map(([openid, user]) => ({
+      openid,
+      qq: user.qq ?? (/^\d{5,20}$/.test(openid) ? openid : ''),
+      group: user.group ?? '',
+      registeredAt: user.registeredAt,
+      source: user.source ?? '旧版记录',
+      binding: this.state.bindings[openid] ?? null
+    }));
+  }
+
+  updateUser(openid, qq, player) {
+    const user = this.state.users[openid];
+    if (!user) throw new Error('用户不存在');
+    if (!/^\d{5,20}$/.test(qq)) throw new Error('QQ 号格式无效');
+    if (this.qqOwner(qq, openid)) throw new Error('QQ 号已被其他用户登记');
+    if (player && !/^[A-Za-z0-9_]{3,16}$/.test(player)) throw new Error('玩家名格式无效');
+    const oldQq = user.qq ?? (/^\d{5,20}$/.test(openid) ? openid : '');
+    const oldPlayer = this.state.bindings[openid]?.player ?? '';
+    user.qq = qq;
+    user.updatedAt = new Date().toISOString();
+    if (player) this.state.bindings[openid] = { player, status: oldQq !== qq || oldPlayer !== player ? '管理员修改资料，需核对服务器' : this.state.bindings[openid]?.status ?? '仅本地记录', updatedAt: user.updatedAt };
+    else if (this.state.bindings[openid] && oldQq !== qq) this.state.bindings[openid].status = '管理员修改 QQ，需核对服务器';
+    this.saveState();
+  }
+
+  deleteUser(openid) {
+    if (!this.state.users[openid]) throw new Error('用户不存在');
+    delete this.state.users[openid];
+    delete this.state.bindings[openid];
     this.saveState();
   }
 

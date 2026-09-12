@@ -16,7 +16,7 @@ test('配置密钥加密保存且读取时不回传', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    const config = validateConfig({ mcsmUrl: 'http://127.0.0.1:23333', mcsmApiKey: 'secret-key', rconPassword: 'secret-pass', onebotToken: 'secret-bot', allowedGroups: '12345678' });
+    const config = validateConfig({ mcsmUrl: 'http://127.0.0.1:23333', mcsmApiKey: 'secret-key', rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123' });
     store.saveConfig(config);
     const raw = readFileSync(join(dir, 'config.enc'), 'utf8');
     assert.ok(!raw.includes('secret-key'));
@@ -24,6 +24,8 @@ test('配置密钥加密保存且读取时不回传', () => {
     assert.equal(new Storage(dir).config.mcsmApiKey, 'secret-key');
     assert.equal(publicConfig(config).mcsmApiKey, undefined);
     assert.equal(publicConfig(config).mcsmApiKeySet, true);
+    assert.equal(publicConfig(config).qqAppSecret, undefined);
+    assert.equal(publicConfig(config).qqAppSecretSet, true);
     assert.equal(validateConfig({ mcsmApiKey: '' }, config).mcsmApiKey, 'secret-key');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -34,67 +36,86 @@ test('近两分钟只返回带时间戳的玩家聊天', () => {
   assert.deepEqual(recentPlayerMessages(log, now).map(item => item.player), ['vill', 'Alex']);
 });
 
-test('登记码只登记 QQ 号；玩家绑定必须随后单独执行', async () => {
+test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: '12345678' };
+    store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const calls = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '已执行'; }, send: async () => {} });
-    const reply = bridge.beginRegistration('36000000', '12345678');
+    const reply = bridge.beginRegistration('USER_OPENID_123', 'GROUP_OPENID_123', '/register 36000000');
     const code = reply.match(/BIND-[A-F0-9]{6}/)[0];
-    assert.match(bridge.confirmRegistration('36000001', '12345678', code), /无效/);
-    assert.match(bridge.confirmRegistration('36000000', '87654321', code), /无效/);
-    assert.match(bridge.confirmRegistration('36000000', '12345678', code), /已登记/);
-    assert.ok(store.state.users['36000000']);
-    assert.equal(store.state.bindings['36000000'], undefined);
+    assert.match(bridge.confirmRegistration('OTHER_OPENID_123', 'GROUP_OPENID_123', code), /无效/);
+    assert.match(bridge.confirmRegistration('USER_OPENID_123', 'OTHER_GROUP_123', code), /无效/);
+    assert.match(bridge.confirmRegistration('USER_OPENID_123', 'GROUP_OPENID_123', code), /已登记/);
+    assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
+    assert.equal(store.state.bindings.USER_OPENID_123, undefined);
     assert.deepEqual(calls, []);
-    assert.match(await bridge.bindPlayer('36000000', '12345678', '/bind implayer'), /绑定命令/);
+    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/bind implayer'), /绑定命令/);
     assert.deepEqual(calls, ['aqqbot whitelist bind 36000000 implayer']);
-    assert.equal(store.state.bindings['36000000'].status, '已发送，待服务器确认');
-    assert.match(bridge.confirmRegistration('36000000', '12345678', code), /无效/);
+    assert.equal(store.state.bindings.USER_OPENID_123.status, '已发送，待服务器确认');
+    assert.match(bridge.confirmRegistration('USER_OPENID_123', 'GROUP_OPENID_123', code), /无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('未登记时任何功能命令只发登记码，登记后才能查询', async () => {
+test('未登记时任何功能命令先要求登记，登记后才能查询', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: '12345678' };
+    store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const replies = [];
     const bridge = new Bridge(store, { motd: async () => ({ motd: '测试服务器', online: 1, max: 20 }), send: async (_event, message) => replies.push(message) });
-    const event = { post_type: 'message', message_type: 'group', group_id: 12345678, user_id: 36000000 };
-    await bridge.handleEvent({ ...event, message_id: 1, raw_message: '/motd' });
-    assert.equal(store.state.users['36000000'], undefined);
-    assert.match(replies[0], /只获取并登记 QQ 号/);
-    const code = replies[0].match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, message_id: 2, raw_message: code });
-    assert.ok(store.state.users['36000000']);
-    assert.equal(store.state.bindings['36000000'], undefined);
-    bridge.lastCommand.delete('36000000');
-    await bridge.handleEvent({ ...event, message_id: 3, raw_message: '/motd' });
+    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
+    await bridge.handleEvent({ ...event, messageId: '1', content: '/motd' });
+    assert.equal(store.state.users.USER_OPENID_123, undefined);
+    assert.match(replies[0], /\/register/);
+    bridge.lastCommand.delete('USER_OPENID_123');
+    await bridge.handleEvent({ ...event, messageId: '2', content: '/register 36000000' });
+    const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
+    await bridge.handleEvent({ ...event, messageId: '3', content: code });
+    assert.ok(store.state.users.USER_OPENID_123);
+    assert.equal(store.state.bindings.USER_OPENID_123, undefined);
+    bridge.lastCommand.delete('USER_OPENID_123');
+    await bridge.handleEvent({ ...event, messageId: '4', content: '/motd' });
     assert.match(replies.at(-1), /测试服务器/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('首次 /bind 只取得登记码，再发 /bind 玩家名才调用 RCON', async () => {
+test('首次 /bind 先要求登记，确认之后才调用 RCON', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: '12345678' };
+    store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const replies = [];
     const commands = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return 'ok'; }, send: async (_event, text) => replies.push(text) });
-    const event = { post_type: 'message', message_type: 'group', group_id: 12345678, user_id: 36000000 };
-    await bridge.handleEvent({ ...event, message_id: 11, raw_message: '/bind implayer' });
+    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
+    await bridge.handleEvent({ ...event, messageId: '11', content: '/bind implayer' });
     assert.deepEqual(commands, []);
-    assert.equal(store.state.bindings['36000000'], undefined);
-    const code = replies[0].match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, message_id: 12, raw_message: code });
+    assert.equal(store.state.bindings.USER_OPENID_123, undefined);
+    bridge.lastCommand.delete('USER_OPENID_123');
+    await bridge.handleEvent({ ...event, messageId: '12', content: '/register 36000000' });
+    const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
+    await bridge.handleEvent({ ...event, messageId: '13', content: code });
     assert.deepEqual(commands, []);
-    bridge.lastCommand.delete('36000000');
-    await bridge.handleEvent({ ...event, message_id: 13, raw_message: '/bind implayer' });
+    bridge.lastCommand.delete('USER_OPENID_123');
+    await bridge.handleEvent({ ...event, messageId: '14', content: '/bind implayer' });
     assert.deepEqual(commands, ['aqqbot whitelist bind 36000000 implayer']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('同一 QQ 不可被其他 OpenID 冒用，管理员可修改和删除本地记录', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    assert.throws(() => store.register('OTHER_OPENID_123', '36000000', 'GROUP_OPENID_123'), /已被/);
+    store.recordBinding('USER_OPENID_123', 'implayer', '已发送');
+    store.updateUser('USER_OPENID_123', '36000001', 'newplayer');
+    assert.equal(store.listUsers()[0].qq, '36000001');
+    assert.match(store.listUsers()[0].binding.status, /需核对服务器/);
+    store.deleteUser('USER_OPENID_123');
+    assert.deepEqual(store.listUsers(), []);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
