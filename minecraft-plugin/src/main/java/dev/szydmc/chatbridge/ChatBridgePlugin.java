@@ -118,7 +118,14 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
             for (ChatLine line : batch) pending.remove(line);
         } catch (Exception error) {
             long now = System.currentTimeMillis();
-            if (now - lastWarn > 30000) { getLogger().warning("平台聊天接口暂不可用：" + error.getMessage()); lastWarn = now; }
+            if (now - lastWarn > 30000) {
+                Throwable cause = error;
+                while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+                String detail = cause.getMessage();
+                String reason = cause.getClass().getSimpleName() + (detail == null || detail.isBlank() ? "" : "：" + detail);
+                getLogger().warning("平台聊天接口暂不可用（" + endpoint.getHost() + ":" + endpoint.getPort() + "）：" + reason);
+                lastWarn = now;
+            }
         } finally { polling.set(false); }
     }
 
