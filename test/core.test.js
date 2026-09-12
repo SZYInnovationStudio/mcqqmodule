@@ -12,6 +12,7 @@ import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
 import { makeQqTellraw, parseNameMap } from '../src/qq-chat.js';
 import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
+import { PluginChatExchange } from '../src/plugin-chat.js';
 
 test('/list 仅返回完整的在线玩家名单，零人不显示历史玩家', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
@@ -140,6 +141,23 @@ test('MC → QQ 只在开关开启且机器人就绪时推送到允许群', asyn
     await bridge.sendMcChatToQq({ player: 'Alice', content: '不发送' });
     assert.equal(sent.length, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('插件双向交换去重并等待确认，不依赖 MCSManager 或 RCON 聊天配置', async () => {
+  const received = [];
+  const exchange = new PluginChatExchange(chat => received.push(chat));
+  exchange.enqueue([{ text: '[QQ群]', color: 'green' }, { text: ' Alice：你好' }]);
+  const incoming = { ack: 0, sent: [{ id: 'run12345-1', player: 'Steve', message: 'hello' }] };
+  assert.equal(exchange.exchange(incoming).receive.length, 1);
+  assert.equal(exchange.exchange(incoming).receive.length, 1);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(received, [{ player: 'Steve', content: 'hello' }]);
+  assert.deepEqual(exchange.exchange({ ack: 1, sent: [] }).receive, []);
+  assert.throws(() => exchange.exchange({ ack: 1, sent: [{ id: 'bad', player: 'Steve', message: 'x' }] }), /格式/);
+  const next = validateConfig({ chatTransport: 'plugin', pluginKey: 'A'.repeat(40), qqToMcEnabled: true, mcToQqEnabled: true, qqAppId: '12345678', qqAppSecret: 'secret', allowedGroups: 'GROUP_OPENID_123' });
+  assert.equal(next.chatTransport, 'plugin');
+  assert.equal(publicConfig(next).pluginKey, undefined);
+  assert.equal(publicConfig(next).pluginKeySet, true);
 });
 
 test('配置密钥加密保存且读取时不回传', () => {

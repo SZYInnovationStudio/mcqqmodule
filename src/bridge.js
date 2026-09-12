@@ -6,6 +6,7 @@ import { parseOnlineList } from './chat-relay.js';
 import { makeQqTellraw, parseNameMap } from './qq-chat.js';
 import { McsmOutputRelay, formatMcToQq } from './mcsm.js';
 import { resolveQqToMcTemplate, DEFAULT_MC_TO_QQ_TEMPLATE } from './config.js';
+import { PluginChatExchange } from './plugin-chat.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -31,13 +32,14 @@ export class Bridge {
     this.status = '未连接';
     this.bot = null;
     this.outputRelay = null;
+    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat));
     this.stopped = false;
   }
 
   start() {
     this.stopped = false;
     this.connect();
-    if (this.store.config.mcToQqEnabled === true) {
+    if (this.store.config.mcToQqEnabled === true && this.store.config.chatTransport !== 'plugin') {
       this.outputRelay = this.createOutputRelay(
         this.store.config,
         chat => this.sendMcChatToQq(chat),
@@ -56,7 +58,16 @@ export class Bridge {
     this.status = '未连接';
   }
 
-  restart() { this.stop(); this.start(); }
+  restart() {
+    this.stop();
+    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat));
+    this.start();
+  }
+
+  exchangePluginChat(input) {
+    if (this.store.config.chatTransport !== 'plugin') throw new Error('插件聊天模式未启用');
+    return this.pluginExchange.exchange(input);
+  }
 
   connect() {
     const { qqAppId, qqAppSecret } = this.store.config;
@@ -132,7 +143,10 @@ export class Bridge {
         const userName = parseNameMap(this.store.config.memberNames, '成员显示名映射').get(openid) || event.senderName || this.store.state.users[openid]?.qq || '群友';
         const groupName = parseNameMap(this.store.config.groupNames, '群名称映射').get(group) || 'QQ群';
         const command = makeQqTellraw(resolveQqToMcTemplate(this.store.config.qqToMcTemplate), { userName, message, groupId: group, groupName });
-        if (command) await this.rcon(this.store.config, command);
+        if (command) {
+          if (this.store.config.chatTransport === 'plugin') this.pluginExchange.enqueue(JSON.parse(command.slice('tellraw @a '.length)).extra);
+          else await this.rcon(this.store.config, command);
+        }
       } catch (error) { this.store.audit('qq-to-mc-error', `群 ${group}：${error.message}`); }
       return;
     }

@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -66,6 +66,15 @@ function authorized(req) {
   return true;
 }
 
+function pluginAuthorized(req) {
+  const expected = store.config.pluginKey;
+  const actual = /^Bearer ([A-Za-z0-9_-]{32,128})$/.exec(String(req.headers.authorization ?? ''))?.[1];
+  if (!expected || !actual) return false;
+  const a = Buffer.from(actual);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function loginSession(res) {
   const token = randomBytes(32).toString('hex');
   sessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
@@ -86,6 +95,10 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (!path.startsWith('/api/')) return json(res, 404, { error: '未找到' });
+    if (path === '/api/plugin/exchange' && req.method === 'POST') {
+      if (!pluginAuthorized(req)) return json(res, 401, { error: '插件 Key 无效' });
+      return json(res, 200, bridge.exchangePluginChat(await body(req)));
+    }
     if (req.method !== 'GET' && req.headers.origin !== ORIGIN) return json(res, 403, { error: '请求来源不允许' });
     if (path === '/api/auth-state' && req.method === 'GET') {
       const authenticated = accounts.configured && authorized(req);
