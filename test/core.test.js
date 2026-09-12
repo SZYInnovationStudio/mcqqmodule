@@ -34,34 +34,46 @@ test('近两分钟只返回带时间戳的玩家聊天', () => {
   assert.deepEqual(recentPlayerMessages(log, now).map(item => item.player), ['vill', 'Alex']);
 });
 
-test('绑定码限定 QQ 号和群，RCON 只用事件 QQ 号', async () => {
+test('登记码只登记 QQ 号；玩家绑定必须随后单独执行', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
     store.config = { allowedGroups: '12345678' };
     const calls = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '已执行'; }, send: async () => {} });
-    const reply = bridge.beginBind('36000000', '12345678', '/bind implayer');
+    const reply = bridge.beginRegistration('36000000', '12345678');
     const code = reply.match(/BIND-[A-F0-9]{6}/)[0];
-    assert.match(await bridge.confirmBind('36000001', '12345678', code), /无效/);
-    assert.match(await bridge.confirmBind('36000000', '87654321', code), /无效/);
-    assert.match(await bridge.confirmBind('36000000', '12345678', code), /RCON/);
+    assert.match(bridge.confirmRegistration('36000001', '12345678', code), /无效/);
+    assert.match(bridge.confirmRegistration('36000000', '87654321', code), /无效/);
+    assert.match(bridge.confirmRegistration('36000000', '12345678', code), /已登记/);
+    assert.ok(store.state.users['36000000']);
+    assert.equal(store.state.bindings['36000000'], undefined);
+    assert.deepEqual(calls, []);
+    assert.match(await bridge.bindPlayer('36000000', '12345678', '/bind implayer'), /绑定命令/);
     assert.deepEqual(calls, ['aqqbot whitelist bind 36000000 implayer']);
     assert.equal(store.state.bindings['36000000'].status, '已发送，待服务器确认');
-    assert.match(await bridge.confirmBind('36000000', '12345678', code), /无效/);
+    assert.match(bridge.confirmRegistration('36000000', '12345678', code), /无效/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('消息命令先自动登记 QQ 号', async () => {
+test('未登记时任何功能命令只发登记码，登记后才能查询', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
     store.config = { allowedGroups: '12345678' };
     const replies = [];
     const bridge = new Bridge(store, { motd: async () => ({ motd: '测试服务器', online: 1, max: 20 }), send: async (_event, message) => replies.push(message) });
-    await bridge.handleEvent({ post_type: 'message', message_type: 'group', group_id: 12345678, user_id: 36000000, message_id: 1, raw_message: '/motd' });
+    const event = { post_type: 'message', message_type: 'group', group_id: 12345678, user_id: 36000000 };
+    await bridge.handleEvent({ ...event, message_id: 1, raw_message: '/motd' });
+    assert.equal(store.state.users['36000000'], undefined);
+    assert.match(replies[0], /只获取并登记 QQ 号/);
+    const code = replies[0].match(/BIND-[A-F0-9]{6}/)[0];
+    await bridge.handleEvent({ ...event, message_id: 2, raw_message: code });
     assert.ok(store.state.users['36000000']);
-    assert.match(replies[0], /测试服务器/);
+    assert.equal(store.state.bindings['36000000'], undefined);
+    bridge.lastCommand.delete('36000000');
+    await bridge.handleEvent({ ...event, message_id: 3, raw_message: '/motd' });
+    assert.match(replies.at(-1), /测试服务器/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

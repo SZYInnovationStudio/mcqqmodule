@@ -92,7 +92,8 @@ export class Bridge {
     if (!allowed.includes(group) || !/^\d{5,20}$/.test(qq) || qq === String(event.self_id ?? '')) return;
     const raw = typeof event.raw_message === 'string' ? event.raw_message : Array.isArray(event.message) ? event.message.filter(item => item.type === 'text').map(item => item.data?.text ?? '').join('') : String(event.message ?? '');
     const message = raw.trim();
-    if (!/^\/(?:bind|motd|logs)(?:\s|$)/i.test(message) && !/^BIND-[A-Z0-9]{6}$/i.test(message)) return;
+    const isCode = /^BIND-[A-Z0-9]{6}$/i.test(message);
+    if (!/^\/(?:bind|motd|logs)(?:\s|$)/i.test(message) && !isCode) return;
     if (event.message_id != null) {
       const key = `${group}:${event.message_id}`;
       if (this.seen.has(key)) return;
@@ -100,14 +101,14 @@ export class Bridge {
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
     }
     const now = Date.now();
-    if ((this.lastCommand.get(qq) ?? 0) + 1500 > now) return;
+    const ownCode = isCode && this.pending.get(qq)?.code === message.toUpperCase() && this.pending.get(qq)?.group === group;
+    if (!ownCode && (this.lastCommand.get(qq) ?? 0) + 1500 > now) return;
     this.lastCommand.set(qq, now);
-    const isNew = this.store.register(qq);
-    if (isNew) this.store.audit('register', `QQ ${qq} 自动登记`);
     try {
       let reply;
-      if (/^\/bind(?:\s|$)/i.test(message)) reply = this.beginBind(qq, group, message);
-      else if (/^BIND-[A-Z0-9]{6}$/i.test(message)) reply = await this.confirmBind(qq, group, message.toUpperCase());
+      if (isCode) reply = this.confirmRegistration(qq, group, message.toUpperCase());
+      else if (!this.store.state.users[qq]) reply = this.beginRegistration(qq, group);
+      else if (/^\/bind(?:\s|$)/i.test(message)) reply = await this.bindPlayer(qq, group, message);
       else if (/^\/motd\s*$/i.test(message)) {
         const info = await this.motd(this.store.config);
         reply = `MOTD：${info.motd || '（空）'}\n在线：${info.online ?? '?'} / ${info.max ?? '?'}${info.version ? `\n版本：${info.version}` : ''}`;
@@ -123,23 +124,33 @@ export class Bridge {
     }
   }
 
-  beginBind(qq, group, message) {
-    const match = message.match(/^\/bind\s+([A-Za-z0-9_]{3,16})\s*$/i);
-    if (!match) return '格式：/bind <Minecraft 玩家名>，例如 /bind implayer';
-    const code = `BIND-${randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`;
-    this.pending.set(qq, { player: match[1], group, code, expires: Date.now() + CODE_TTL });
-    return `QQ 号绑定\n玩家：${match[1]}\n绑定码：${code}\n有效期：5 分钟\n请由你本人在本群发送这串码；其他 QQ 号发送无效。`;
+  beginRegistration(qq, group) {
+    let pending = this.pending.get(qq);
+    if (!pending || pending.expires < Date.now() || pending.group !== group) {
+      pending = { group, code: `BIND-${randomBytes(4).toString('hex').slice(0, 6).toUpperCase()}`, expires: Date.now() + CODE_TTL };
+      this.pending.set(qq, pending);
+    }
+    return `先登记你的 QQ 号\n登记码：${pending.code}\n有效期：5 分钟\n请由你本人在本群发送这串码。此步骤只获取并登记 QQ 号，不会绑定游戏玩家。登记成功后，再发送 /bind <玩家名>。`;
   }
 
-  async confirmBind(qq, group, code) {
+  confirmRegistration(qq, group, code) {
     const pending = this.pending.get(qq);
-    if (!pending || pending.code !== code || pending.group !== group) return '绑定码无效，或不属于你的 QQ 号及当前群。请重新使用 /bind <玩家名>。';
-    if (pending.expires < Date.now()) { this.pending.delete(qq); return '绑定码已过期，请重新使用 /bind <玩家名>。'; }
+    if (!pending || pending.code !== code || pending.group !== group) return '登记码无效，或不属于你的 QQ 号及当前群。请重新发送功能命令获取新码。';
+    if (pending.expires < Date.now()) { this.pending.delete(qq); return '登记码已过期，请重新发送功能命令获取新码。'; }
     this.pending.delete(qq);
-    const command = `aqqbot whitelist bind ${qq} ${pending.player}`;
+    this.store.register(qq);
+    this.store.audit('register', `QQ ${qq} 经登记码确认`);
+    return `QQ 号 ${qq} 已登记。现在可以发送 /bind <玩家名>（例如 /bind implayer）真正绑定 Minecraft 玩家，也可以发送 /motd 或 /logs 查询。`;
+  }
+
+  async bindPlayer(qq, group, message) {
+    const match = message.match(/^\/bind\s+([A-Za-z0-9_]{3,16})\s*$/i);
+    if (!match) return '格式：/bind <Minecraft 玩家名>，例如 /bind implayer';
+    const player = match[1];
+    const command = `aqqbot whitelist bind ${qq} ${player}`;
     const result = await this.rcon(this.store.config, command);
-    this.store.recordBinding(qq, pending.player, '已发送，待服务器确认');
-    this.store.audit('bind-command', `群 ${group}，QQ ${qq}，玩家 ${pending.player}：RCON 已执行`);
-    return `绑定指令已通过 RCON 发送：${pending.player} ↔ ${qq}。${result ? `\n服务器响应：${result.slice(0, 500)}` : '\n服务器未返回文本，请以 AQQBot/服务器实际绑定状态为准。'}`;
+    this.store.recordBinding(qq, player, '已发送，待服务器确认');
+    this.store.audit('bind-command', `群 ${group}，QQ ${qq}，玩家 ${player}：RCON 已执行`);
+    return `已为玩家 ${player} 发送 AQQBot 绑定命令，使用的 QQ 号是 ${qq}。${result ? `\n服务器响应：${result.slice(0, 500)}` : '\n服务器未返回文本，请以 AQQBot/服务器实际绑定状态为准。'}`;
   }
 }
