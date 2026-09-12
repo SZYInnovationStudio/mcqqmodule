@@ -83,8 +83,10 @@ test('仅识别日志中新出现的玩家聊天并转发 QQ，跳过系统行',
     await tail.poll();
     appendFileSync(path, '[12:00:01] [Server thread/INFO]: <NewPlayer> 你好 QQ\n[12:00:02] [Server thread/INFO]: Done (1.2s)!\n');
     await tail.poll();
+    writeFileSync(path, '[12:00:03] [Server thread/INFO]: <Rotated> 换日志后消息\n');
+    await tail.poll();
     tail.stop();
-    assert.deepEqual(chats, [{ player: 'NewPlayer', content: '你好 QQ' }]);
+    assert.deepEqual(chats, [{ player: 'NewPlayer', content: '你好 QQ' }, { player: 'Rotated', content: '换日志后消息' }]);
     assert.equal(parsePlayerChat('[12:00:03] [Server thread/INFO]: <NewPlayer> [QQ群] 回环'), null);
     assert.deepEqual(parsePlayerChat('[12:00:04 INFO]: <Alex> hello'), { player: 'Alex', content: 'hello' });
   } finally { rmSync(dir, { recursive: true, force: true }); }

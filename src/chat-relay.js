@@ -61,11 +61,16 @@ export class ChatLogTail {
       const info = await stat(this.path);
       if (!info.isFile()) throw new Error('MC 日志路径不是文件');
       const identity = `${info.dev}:${info.ino}:${info.birthtimeMs}`;
-      if (this.position === null || identity !== this.identity || info.size < this.position) {
+      if (this.position === null) {
         this.identity = identity;
         this.position = info.size;
         this.remainder = '';
         return;
+      }
+      if (identity !== this.identity || info.size < this.position) {
+        this.identity = identity;
+        this.position = 0;
+        this.remainder = '';
       }
       if (info.size === this.position) return;
       const handle = await open(this.path, 'r');
