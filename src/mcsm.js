@@ -15,7 +15,16 @@ export async function fetchMcsmOutput(config, fetcher = fetch, size = 64) {
       signal: AbortSignal.timeout(6000)
     });
   } catch { throw new Error('MCSManager 连接失败或超时'); }
-  if (!response.ok) throw new Error(`MCSManager HTTP ${response.status}`);
+  if (!response.ok) {
+    if (response.status === 403) {
+      let detail;
+      try { detail = await response.json(); } catch {}
+      if (/administrator has disabled the use of the API key|enableApiKey/i.test(String(detail?.data ?? ''))) {
+        throw new Error('MCSManager HTTP 403：面板管理员禁用了 API Key。请管理员在 MCSManager Web 配置中启用 enableApiKey，并重启面板 Web 服务后再测试。');
+      }
+    }
+    throw new Error(`MCSManager HTTP ${response.status}`);
+  }
   let body;
   try { body = await response.json(); } catch { throw new Error('MCSManager 返回了无效 JSON'); }
   if (body?.status !== 200) throw new Error(`MCSManager API ${body?.status ?? '响应异常'}`);

@@ -77,6 +77,7 @@ test('MCSManager 输出接口仅后台使用密钥，并识别玩家聊天', asy
   assert.deepEqual(parseMcPlayerChat(output.trim()), { player: 'Alice', content: 'hello' });
   assert.equal(parseMcPlayerChat('[12:00:00] [Server thread/INFO]: [QQ群] x: hello'), null);
   await assert.rejects(fetchMcsmOutput(config, async () => ({ ok: false, status: 403 })), /HTTP 403/);
+  await assert.rejects(fetchMcsmOutput(config, async () => ({ ok: false, status: 403, json: async () => ({ status: 403, data: 'The administrator has disabled the use of the API key. Set "enableApiKey" to "true".' }) })), /启用 enableApiKey/);
 });
 
 test('MC 输出轮询先建立基线，只转发后来完整的新聊天', async () => {
