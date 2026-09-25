@@ -22,7 +22,8 @@
 - Minecraft 已开启 RCON。
 - QQ 官方 Bot 的 AppID、AppSecret 和允许群 OpenID。
 - 使用绑定功能时，Minecraft 服务端需安装并配置 AQQBot。
-
+- 或者，发给ai他会做的，，，。。额，记得让ai让你审核。。不然炸了不管（）
+  
 ## 插件 JAR
 
 编译好的插件位于：
