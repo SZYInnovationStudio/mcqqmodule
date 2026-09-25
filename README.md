@@ -1,54 +1,80 @@
 # MC × QQ 管理平台
 
-QQ 官方 Bot 与 Minecraft 的桥接服务。双向聊天只通过独立的 Paper / Purpur 插件连接；AQQBot 白名单查询、绑定和解绑仍使用 RCON；管理员终端只使用 RCON。管理网页监听 127.0.0.1:2556，不向公网开放。
+基于 QQ 官方 Bot、Minecraft RCON 和独立 Paper 插件的管理平台。当前服务端版本为 **8.8.1**，聊天插件版本为 **1.1.3**。
 
-安装并配置 minecraft-plugin/target 中的 JAR 和相同的插件 Key，然后在后台分别开启 QQ → MC、MC → QQ。插件负责双向聊天、玩家进出服事件和心跳；连续约 30 秒没有收到心跳时，后台会发送离线提示。RCON 不用于聊天。Minecraft 状态协议用于 MOTD；在线名单使用服务器 list 命令。
+当前 JAR 基于 **Paper 1.21.11 API** 编译并按 Paper 环境提供安装说明。其他服务端核心尚未验证。
 
-运行要求 Node.js 22 或更新版本。在项目目录执行 npm start，浏览器打开 http://127.0.0.1:2556。首次使用需设置管理员账户。随后在后台填写游戏地址、RCON、QQ Bot AppID/AppSecret、允许群 OpenID 和插件 Key，并测试各连接。配置及管理员账户加密保存在 data 目录；不要公开该目录或完整私有 ZIP。远程部署详见 DEPLOY.md。
+## 主要功能
 
-群友先登记 QQ 号并二次确认。MC 绑定数据以服务器 AQQBot 实时结果为准，后台可按 QQ 号或玩家名查询，不保存 MC 绑定列表。纯数字玩家名（如 011）保留前导零。中文别名与英文命令共用处理和回复，例如 /绑定 011 等于 /mcbind 011，/解绑 011 等于 /mcunbind 011。完整命令见 COMMANDS.md。
+- QQ 与 Minecraft 双向聊天、玩家进服和退服通知、服务器开启和关闭通知。
+- AQQBot 绑定查询、QQ/OpenID 登记、玩家绑定管理和只读整库查看。
+- `/status`、`/motd`、`/list`、`/tps`、绑定、解绑和每日签到等中英文命令。
+- 管理后台提供连接设置、消息模板、服务器日志、RCON 终端和模块管理。
+- 群命令使用固定白名单，普通群消息不能作为 RCON 或 Minecraft 控制台命令执行。
+- 支持通用 `.mcqqmodule` 增量模块及旧模块格式。
 
-旧版本的 MCSManager 聊天配置在新版本启动时从加密配置中清除。旧聊天方式不会自动继续运行；请确认独立插件已连通。已有远程安装更新时保留远程当前 data 目录，程序会保留已完成确认的 OpenID→QQ 登记。
+命令说明见 [COMMANDS.md](COMMANDS.md)，模块制作说明见 [MODULE-SPEC.md](MODULE-SPEC.md)。
 
-8.2 新增 QQ 登记后台：登录管理员后可查看和搜索已确认的 QQ 号、OpenID、登记群和时间；列表可手动刷新。这个页面读取 QQ/OpenID 登记数据，不存放 MC 玩家绑定。
+## 运行要求
 
-8.3 新增 /status（中文 /桥接状态），显示北京时间、插件心跳、RCON 实测状态、QQ Bot 连接状态和 BOT 服务端版本。原 /状态 仍对应 /motd。
+- Node.js 22 或更高版本。
+- Paper 1.21.11 和 Java 21。
+- Minecraft 已开启 RCON。
+- QQ 官方 Bot 的 AppID、AppSecret 和允许群 OpenID。
+- 使用绑定功能时，Minecraft 服务端需安装并配置 AQQBot。
 
-8.4 在 QQ 登记列表的登记时间后加入修改和删除，操作后列表立即更新，并在页面可见时每 10 秒同步一次。管理员可修改 QQ 号和 OpenID，原登记时间保留；删除登记默认不会自动解绑 AQQBot 的 MC 玩家；8.5 可在 QQ 登记页开启联动开关。群内只接受明确列出的命令，其他斜杠命令不会进入插件或 RCON；插件收到的普通聊天仅作为文本显示。/status 每次调用都会重新检查连接和读取当前版本。
+## 插件 JAR
 
-8.5 的 AQQBot 管理页可按 QQ 号或玩家名实时查询，二次确认后解绑单个玩家，或逐个清空该 QQ 的全部 MC 玩家绑定。每次解绑前后核对 AQQBot；部分失败立即停止并显示已确认的数量。QQ 登记页新增默认关闭、持久化的联动解绑开关：开启时先清空 AQQBot 绑定，全部确认后才删除 QQ/OpenID 登记；关闭时只删除登记。
+编译好的插件位于：
 
-8.5.1 把后台分成只读“AQQBot 查询”、可写“绑定管理”和只读“AQQBot 整库”三个页面。绑定管理支持 QQ、OpenID、玩家名搜索，单条新增、修改、解绑，以及全选、批量解绑和批量改绑；QQ 登记页支持管理员新建。新版 JAR 只读 plugins/AQQBot/data.yml 并通过认证插件连接同步整库快照，整库页可手动刷新。
+[`release/szydmc-chat-bridge-1.1.3.jar`](release/szydmc-chat-bridge-1.1.3.jar)
 
-## 8.7.0
+这个文件可以直接放入 Minecraft 服务端的 `plugins/`。`minecraft-plugin/target/` 是本地编译临时目录，不作为下载位置。
 
-后台“模块中心”可以上传模块包来添加独立页面和模块接口。模块安装在 `data/modules/<模块ID>`，页面固定使用 `/modules/<模块ID>/`，接口固定使用 `/api/modules/<模块ID>/...`。安装成功后立即加载，服务重启后自动恢复。
+## 安装管理平台
 
-模块包不能写入核心 `src`、`public` 或配置文件；同一模块 ID 只接受更高版本升级，并保留模块状态和设置。服务端会限制文件数量和大小、检查路径，并逐文件核对 SHA-256。模块格式、接口和制作方法见 `MODULE-SPEC.md`。包含 `server.mjs` 的模块属于服务端代码，只应上传已审核的可信模块。
+1. 下载或克隆仓库，进入项目根目录。
+2. 安装依赖并启动：
 
-## 8.7.1
+   ```bash
+   npm install
+   npm start
+   ```
 
-模块列表提供独立启用开关、状态和版本。模块可声明独立 QQ 命令，仍经过原有群白名单和 QQ 登记验证。每日签到以单独模块包交付：`/qd`、`/签到` 查询当前 QQ 名下 AQQBot 玩家，多个玩家用 `/qd add 玩家名` 选择。每个 QQ 每个北京时间自然日成功领取一次；奖励区间和经济命令模板可在模块页面调整。请先核实实际经济插件的发放命令。详见 `MODULE-SPEC.md`。
+3. 浏览器打开 `http://127.0.0.1:2556`，首次进入时创建管理员账号。
+4. 在“修改信息”中填写 Minecraft 地址、RCON、QQ Bot AppID/AppSecret、允许群 OpenID。
+5. 在“独立聊天插件”中生成至少 32 位的插件 Key，保存后台设置。
+6. 按下一节安装 JAR，并把同一个 Key 写入插件配置。
+7. 后台测试插件、RCON 和 QQ Bot 连接，随后开启需要的转发与通知开关。
 
-## 8.7.2
+Linux 长期运行和反向代理配置见 [DEPLOY.md](DEPLOY.md)。运行产生的管理员、密钥、登记和日志数据保存在 `data/`，该目录已从 Git 排除，不要公开上传。
 
-签到模块 1.1.0 允许直接发送 `/qd add 玩家名` 或 `/签到 add 玩家名`，无需先发送 `/qd`。发放前会检查发送者 OpenID 对应的 QQ 登记，以及该玩家在 AQQBot 中的当前归属；不匹配不会发钱。服务端支持同模块 ID 的较高版本升级，保留签到记录、设置和开关，失败时恢复旧版。
+## 安装 Minecraft 插件
 
-## 8.6.4
+1. 关闭 Minecraft 服务器。
+2. 下载 [`release/szydmc-chat-bridge-1.1.3.jar`](release/szydmc-chat-bridge-1.1.3.jar)，放入服务端 `plugins/`。
+3. 启动一次服务器，让插件生成 `plugins/SZYDMCChatBridge/config.yml`，然后关闭服务器。
+4. 编辑配置：
 
-8.6.4 包含服务器日志、消息模板和生命周期功能。`/tps` 与 `/性能` 执行固定的 RCON `tps` 查询；后台终端只保留 RCON。插件 1.1.3 不接收后台控制台命令，并在认证心跳中上报自身版本。后台的 `/api/status` 与 QQ `/status` 会显示最近上报的插件版本。管理员打开日志同步开关后，新版插件才会增量读取 `logs/latest.log`，经现有插件 Key 认证发送到后台；关闭开关后插件停止读取和上传。
+   ```yaml
+   bridge-url: 'http://127.0.0.1:2556/api/plugin/exchange'
+   key: '后台生成的插件Key'
+   aqqbot-data-path: '../AQQBot/data.yml'
+   server-log-path: '../../logs/latest.log'
+   ```
 
-消息模板移到独立页面。QQ/MC 聊天、玩家进退服、服务器开启和关闭均可分别编辑；玩家事件与服务器事件有独立开关。新安装的进退服和开关服文案不附加项目名称前缀；旧版本已保存模板保持原样。正常关服由插件立即发送关闭事件，异常断联仍由约 30 秒心跳超时兜底，后台会对重复状态通知去重。
+5. `key` 必须与后台保存的插件 Key 完全一致。平台与 Minecraft 不在同一台机器时，将 `bridge-url` 改为经过 HTTPS 反向代理或安全隧道公开的地址。
+6. 重新启动 Minecraft，在后台点击“测试插件连接”；连接成功后再开启 QQ → MC、MC → QQ、日志同步和生命周期通知。
+7. 如果 AQQBot 自己也开启了聊天转发，请关闭其聊天转发，避免消息重复；保留白名单和绑定功能。
 
+插件只读取 AQQBot 数据和服务器日志，不修改 AQQBot 数据；插件不接收后台控制台命令，TPS 与管理员命令统一通过 RCON 执行。
 
-## 8.8.1
+## 自行构建 JAR
 
-`/tps` 与 `/性能` 会清除 RCON 返回中的 Minecraft 和 ANSI 颜色控制符，并把常见的 1、5、15 分钟 TPS 输出整理成三行中文；无法识别的其他格式仍会显示清理后的原文。
+在项目根目录执行：
 
-## 8.8.0
+```bash
+mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-settings.xml -f minecraft-plugin/pom.xml clean package
+```
 
-模块平台改为通用 `bridge-module-v2` 格式，推荐使用 `.mcqqmodule`；旧版 `szydmc-module-v1`、`.szydmodule` 和已安装模块继续兼容。v2 模块可包含多个服务端源码文件，并通过 `api.host` 使用 RCON、完整配置、QQ 登记、AQQBot 管理、状态、日志和群通知能力。模块中心按概况、已安装、安装升级和权限重新分区。新格式、交付文件和默认提示不再使用项目名称前缀。
-
-插件 1.1.1 或 1.1.2 可暂时继续使用：8.6.4 后台不会向它们下发控制台命令，日志及其他桥接功能保持兼容；旧插件没有版本上报字段，因此状态显示“未上报”。
-
-远程终端只通过 RCON 执行管理员命令。群内命令仍由固定白名单控制，不能把 `/tp` 等任意群消息送进控制台。`/tps`（中文 `/性能`）只发送固定的 RCON `tps` 命令，不接受额外参数。
+构建结果位于 `minecraft-plugin/target/szydmc-chat-bridge-1.1.3.jar`。发布时将它复制到 `release/`。
