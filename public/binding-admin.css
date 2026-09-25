@@ -1,0 +1,21 @@
+.binding-search,.binding-create{display:grid;grid-template-columns:minmax(160px,220px) minmax(200px,1fr) auto;gap:12px;align-items:end}
+.binding-search label,.binding-create label,.binding-batch label{display:grid;gap:6px;color:#d7e2ee;font-size:14px;font-weight:700}
+.binding-search input,.binding-search select,.binding-create input,.binding-batch input,.binding-edit input{width:100%;padding:10px 12px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px}
+.binding-search button,.binding-create button{min-height:42px}
+.binding-summary{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0;color:#d7e2ee}
+.binding-summary strong{color:#83eec9}
+.binding-batch{display:flex;gap:9px;align-items:end;flex-wrap:wrap;margin:15px 0;padding:12px;border:1px solid #304960;border-radius:10px;background:#102035}
+.binding-batch label{min-width:190px}
+.binding-batch button{padding:9px 12px}
+.binding-batch .danger,.binding-table .danger{color:#ff9c9c;border-color:#8d4c55}
+.binding-scroll{overflow-x:auto}
+.binding-table{width:100%;border-collapse:collapse;text-align:left;min-width:680px}
+.binding-table th,.binding-table td{padding:11px;border-bottom:1px solid #294058;vertical-align:middle}
+.binding-table th{font-size:13px;color:#9fb5c9}
+.binding-table td{overflow-wrap:anywhere}
+.binding-table input[type=checkbox]{width:17px;height:17px;accent-color:#6be3c0}
+.binding-table button{padding:7px 10px;font-size:13px;margin-right:7px}
+.binding-edit{display:flex;gap:9px;align-items:end;flex-wrap:wrap}
+.binding-edit label{display:grid;gap:5px;min-width:160px;flex:1;font-size:13px}
+.binding-edit-row td{background:#14263b}
+@media(max-width:760px){.binding-search,.binding-create{grid-template-columns:1fr}.binding-batch label{min-width:100%}}

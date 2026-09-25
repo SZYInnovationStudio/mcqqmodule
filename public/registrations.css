@@ -1,0 +1,28 @@
+.registration-search{display:grid;gap:8px;max-width:560px;color:#d7e2ee;font-size:14px;font-weight:700}
+.registration-search input{width:100%;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px}
+.registration-search input:focus{outline:2px solid #6be3c0}
+.registration-count{font-size:14px;color:#83eec9!important;margin:12px 0}
+.registration-scroll{overflow-x:auto}
+.registration-table{width:100%;border-collapse:collapse;text-align:left}
+.registration-table th,.registration-table td{padding:13px 12px;border-bottom:1px solid #294058;vertical-align:top}
+.registration-table th{font-size:13px;color:#9fb5c9;white-space:nowrap}
+.registration-table td{font:14px/1.5 "Cascadia Code",Consolas,monospace;overflow-wrap:anywhere}
+.registration-table tr:last-child td{border-bottom:0}
+.registration-empty{text-align:center;color:#9fb5c9;padding:28px!important}
+@media(max-width:760px){.registration-table{min-width:680px}}
+
+.registration-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:150px}
+.registration-actions button{padding:7px 10px;font-size:13px;white-space:nowrap}
+.registration-actions .danger{color:#ff9c9c;border-color:#8d4c55}
+.registration-edit-row td{background:#14263b}
+.registration-edit-form{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.registration-edit-form label{display:grid;gap:5px;color:#d7e2ee;font-size:13px;font-weight:700;min-width:170px;flex:1}
+.registration-edit-form input{width:100%;padding:9px 11px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px}
+.registration-edit-form input:focus{outline:2px solid #6be3c0}
+
+.registration-switch{display:grid;gap:6px;margin:0 0 18px;padding:13px 14px;border:1px solid #34506b;border-radius:10px;background:#102035}
+.registration-switch label{display:flex;align-items:center;gap:9px;color:#e2edf7;font-size:14px;font-weight:700}
+.registration-switch input{width:18px;height:18px;accent-color:#6be3c0}
+.registration-switch small{color:#9fb5c9;line-height:1.5}
+
+.registration-create{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid #294058}.registration-create label{display:grid;gap:6px;min-width:180px;flex:1;color:#d7e2ee;font-size:13px;font-weight:700}.registration-create input{width:100%;padding:10px 12px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px}.registration-create button{white-space:nowrap}

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+  <title>服务器远程终端 · MC × QQ</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/terminal.css"><script type="module" src="/terminal.js"></script>
+</head>
+<body><main class="shell">
+  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a class="active" aria-current="page" href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+  <div class="page-intro"><div><div class="eyebrow">仅管理员</div><h1>服务器远程终端</h1><p>通过 RCON 向 Minecraft 服务器发送一条控制台命令并查看结果。</p></div><a class="secondary link-button" href="/guide">查看命令教程</a></div>
+  <div class="terminal-layout">
+    <section class="panel"><div class="panel-head"><div><div class="eyebrow">RCON 命令执行</div><h2 id="connection-title">正在检查 RCON 连接…</h2></div><span class="chip">管理员登录后可用</span></div><form id="terminal-form" class="terminal-form"><label for="command">服务器控制台命令</label><div class="terminal-input-row"><input id="command" name="command" maxlength="512" autocomplete="off" spellcheck="false" placeholder="例如：list" required><button id="send-command" class="primary" type="submit">发送命令</button></div></form><p class="hint">所有终端命令只通过 RCON 发送；可输入 <code>list</code>、<code>say 测试</code> 等。这里不是 QQ 命令，不要填 <code>/mcbind 玩家名</code>。</p><p id="terminal-message" class="message" role="status"></p><div class="terminal-output-head"><strong>最近 100 条管理员命令执行日志</strong><button id="refresh-log" class="ghost" type="button">刷新日志</button></div><p class="hint">记录时间、命令和返回结果；失败原因也会保存。日志加密存放在本机，重新打开页面仍可查看。</p><div id="terminal-output" class="terminal-output" role="log" aria-live="polite"><p class="terminal-empty">正在加载执行日志…</p></div></section>
+    <aside class="panel"><div class="eyebrow">常用格式</div><h2>别把两边命令混淆</h2><p>玩家在 QQ 群发的是 <code>/mcbind implayer</code>。对应的服务器命令格式是：</p><pre class="terminal-example">aqqbot whitelist bind &lt;qq&gt; &lt;player&gt;</pre><p>解绑指定玩家的格式是：</p><pre class="terminal-example">aqqbot whitelist unbind player &lt;player&gt;</pre><p><code>&lt;qq&gt;</code> 是已登记的数字 QQ 号，<code>&lt;player&gt;</code> 是玩家名。尖括号只是占位符，手动发令时应填具体值，例如 <code>aqqbot whitelist bind 36000000 implayer</code>。可先用 <code>list</code> 测试所选连接。</p><p class="hint">RCON 权限相当于服务器控制台。<code>stop</code>、<code>op</code> 等命令会立即影响服务器或权限，请确认后再发；不要把此后台暴露到公网。</p></aside>
+  </div>
+</main></body></html>

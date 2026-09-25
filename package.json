@@ -1,0 +1,18 @@
+{
+  "name": "mc-qq-bridge",
+  "version": "8.8.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "build:checkin": "node scripts/build-checkin-module.mjs",
+    "test": "node --test test/admin-api.test.js test/account.test.js test/aqqbot.test.js test/checkin.test.js test/commands.test.js test/core.test.js test/modules.test.js test/plugin-source.test.js test/registrations.test.js test/security.test.js test/status.test.js"
+  },
+  "dependencies": {
+    "@tencent-connect/qqbot-nodejs": "^1.0.4",
+    "ws": "^8.21.3"
+  }
+}

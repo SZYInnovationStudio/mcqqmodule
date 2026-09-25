@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+  <title>玩家命令日志 · MC × QQ</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/player-logs.css"><script type="module" src="/player-logs.js"></script>
+</head>
+<body><main class="shell">
+  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a class="active" aria-current="page" href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+  <div class="page-intro"><div><div class="eyebrow">仅管理员</div><h1>玩家命令日志</h1><p>查看 QQ 玩家命令的处理记录，与管理员 RCON 执行日志分开。</p></div><button id="refresh" class="secondary" type="button">刷新日志</button></div>
+  <section class="panel"><div class="log-controls"><label>命令分类<select id="category"><option value="">全部分类</option><option value="QQ 登记">QQ 登记</option><option value="MC 绑定">MC 绑定</option><option value="MC 解绑">MC 解绑</option><option value="服务器查询">服务器查询</option></select></label><label>处理状态<select id="status"><option value="">全部状态</option><option value="已回复">已回复</option><option value="未登记拦截">未登记拦截</option><option value="失败">失败</option></select></label><label>查找 QQ 号 / OpenID<input id="search" type="search" placeholder="输入 QQ 号或 OpenID" autocomplete="off"></label></div><p class="hint">仅记录允许群中被机器人识别并处理的命令；无关聊天、重复消息和频率限制丢弃的消息不记录。确认码在日志里会遮盖。最近保留 200 条，加密保存在本机。</p><p id="log-message" class="message" role="status"></p><div class="log-summary" id="log-summary"></div><div id="log-list" class="log-list" aria-live="polite">正在加载…</div></section>
+</main></body></html>

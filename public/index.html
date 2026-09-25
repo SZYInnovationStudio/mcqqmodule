@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101a2c">
+  <title>总览 · MC × QQ</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/pages.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div>
+      <nav id="main-nav" class="nav" aria-label="主导航" hidden><a class="active" aria-current="page" href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav>
+      <div class="top-actions"><span id="current-user" class="local-tag" hidden></span><button id="logout" class="ghost" hidden>退出</button></div>
+    </header>
+
+    <section id="setup-view" class="login-card" hidden>
+      <div class="eyebrow">首次使用</div><h1>设置管理员账户</h1><p>先设置登录这个后台的用户名和密码。</p>
+      <form id="setup-form"><label for="setup-username">用户名</label><input id="setup-username" name="username" autocomplete="username" required minlength="3" maxlength="32"><label for="setup-password">密码（至少 6 位，包含字母和数字）</label><input id="setup-password" name="password" type="password" autocomplete="new-password" required minlength="6" pattern="(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]{6,256}" title="至少 6 位，只能使用字母和数字，且必须同时包含两者"><label for="setup-confirm">再输入一次密码</label><input id="setup-confirm" type="password" autocomplete="new-password" required minlength="6"><button type="submit" class="primary">创建账户</button></form>
+      <p id="setup-message" class="message" role="status"></p>
+    </section>
+
+    <section id="login-view" class="login-card" hidden>
+      <div class="eyebrow">管理员登录</div><h1>欢迎回来</h1><p>登录后查看连接情况，也可以修改信息。</p>
+      <form id="login-form"><label for="username">用户名</label><input id="username" autocomplete="username" required><label for="password">密码</label><input id="password" type="password" autocomplete="current-password" required><button type="submit" class="primary">登录</button></form>
+      <p id="login-message" class="message" role="status"></p>
+      <a class="help-link" href="/guide">第一次使用？先看教程</a>
+    </section>
+
+    <div id="dashboard" hidden>
+      <div class="page-intro"><div><div class="eyebrow">总览</div><h1>现在运行得怎么样？</h1><p>这里看连接状态。要填写或修改资料，请到「修改信息」。</p></div><button id="refresh" class="secondary">刷新状态</button></div>
+      <section class="next-card" aria-live="polite"><div><span class="eyebrow">下一步</span><h2 id="next-title">正在检查…</h2><p id="next-description">请稍候。</p></div><a id="next-link" class="primary link-button" href="/settings">修改信息</a></section>
+      <div class="status-grid">
+        <div class="status-card"><span>QQ 机器人</span><strong id="bot-status">—</strong><small>接收群里的命令</small></div>
+        <div class="status-card"><span>游戏命令连接</span><strong id="rcon-status">—</strong><small>用于绑定玩家</small></div>
+        <div class="status-card"><span>已登记 QQ</span><strong id="registered-count">—</strong><small>用户自行二次确认</small></div>
+        <div class="status-card"><span>AQQBot 绑定</span><strong>实时查询</strong><small>以服务器当前结果为准</small></div>
+      </div>
+      <div class="quick-grid"><a class="quick-card" href="/settings"><strong>修改信息</strong><span>填写服务器、RCON、QQ Bot 和插件 Key</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/terminal"><strong>RCON 终端</strong><span>管理员发送服务器控制台命令并查看返回</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/player-logs"><strong>玩家日志</strong><span>按类别查看 QQ 玩家命令及处理结果</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/users"><strong>AQQBot 查询</strong><span>按 QQ 号或玩家名读取当前绑定</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/registrations"><strong>QQ 登记</strong><span>查看 QQ 号与 OpenID 对应关系</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/modules"><strong>模块中心</strong><span>安装、升级并管理服务器扩展功能</span><b aria-hidden="true">→</b></a><a class="quick-card" href="/guide"><strong>使用教程</strong><span>按顺序设置，再到 QQ 群里登记和绑定</span><b aria-hidden="true">→</b></a></div>
+      <div class="bottom-grid"><section class="panel"><div class="panel-head"><div><div class="eyebrow">AQQBot</div><h2>查询当前绑定</h2></div></div><p>后台不保存 MC 绑定列表。按 QQ 号或玩家名直接查询服务器。</p><a class="secondary link-button" href="/users">打开查询</a></section><section class="panel"><div class="panel-head"><div><div class="eyebrow">操作记录</div><h2>最近发生</h2></div></div><div id="audit" class="records empty">暂无操作记录</div></section></div>
+    </div>
+  </main>
+</body>
+</html>
