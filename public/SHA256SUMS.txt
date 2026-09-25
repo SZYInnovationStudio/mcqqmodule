@@ -1,0 +1,3 @@
+095e0a386625345da8b9eab44d270a4dea70bac802e3978d22ede1812d8b5be3  new/szydmc-chat-bridge-1.1.4.jar
+efa1741120fe7d5f8b7426e8dd8d82867da3aef05fd614c526c8ef8da2f3860b  old/szydmc-chat-bridge-1.1.3.jar
+a536bcccc0f99e939a4d2d86747dea496537c3b14e49e6f2cbb6b5b9cc736f80  old/szydmc-chat-bridge-1.0.0.jar
