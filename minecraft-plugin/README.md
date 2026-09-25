@@ -4,7 +4,7 @@
 
 ## 安装
 
-1. 把 [szydmc-chat-bridge-1.0.0.jar](target/szydmc-chat-bridge-1.0.0.jar) 放进 MC 服务端的 `plugins/`，重启 MC。插件会生成 `plugins/SZYDMCChatBridge/config.yml`。
+1. 把 [szydmc-chat-bridge-1.1.3.jar](target/szydmc-chat-bridge-1.1.3.jar) 放进 MC 服务端的 `plugins/`，重启 MC。插件会生成 `plugins/SZYDMCChatBridge/config.yml`。
 2. 打开网页“修改信息”→“独立聊天插件”，点“生成并复制插件 Key”。先把 Key 粘贴到插件 `config.yml` 的 `key:`，再在网页保存。Key 至少 32 位，两个地方必须完全一致，不要发到 QQ 群。
 3. `bridge-url` 默认是 `http://127.0.0.1:2556/api/plugin/exchange`，只适用于**MC 插件和网页程序在同一台机器**。若分开部署，必须用 HTTPS 反向代理或安全隧道让插件访问平台；不能把网页的管理员端口或 Key 明文暴露到公网。当前网页程序只监听 `127.0.0.1:2556`，需要由部署者设置安全隧道，不能直接写公网 IP。
 4. 再次重启 MC，网页将“聊天接入方式”切为“独立插件”，按需开启 QQ → MC、MC → QQ 两个开关并保存。等待约 2 秒，点“测试插件连接”，应显示 `connected: true`。
@@ -28,4 +28,10 @@ mvn -f minecraft-plugin/pom.xml package
 mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-settings.xml -f minecraft-plugin/pom.xml package
 ```
 
-JAR 在 `minecraft-plugin/target/szydmc-chat-bridge-1.0.0.jar`。
+JAR 在 `minecraft-plugin/target/szydmc-chat-bridge-1.1.3.jar`。
+
+## 1.1.3
+
+插件保留服务器启停事件，以及可选的 `logs/latest.log` 增量读取。后台日志开关关闭时插件不读取或上传日志。日志路径由 `server-log-path` 设置，默认 `../../logs/latest.log`。插件仍不会修改 AQQBot 的 `data.yml`；整库数据只读解析。
+
+1.1.3 删除后台控制台命令接收与执行代码，并在每次认证心跳中上报 JAR 版本。TPS 和管理员终端统一使用 RCON；服务器日志、双向聊天、AQQBot 整库快照和服务器生命周期功能保持可用。

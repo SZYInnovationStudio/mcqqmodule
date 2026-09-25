@@ -10,8 +10,7 @@ import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
 import { parseOnlineList } from '../src/chat-relay.js';
-import { makeQqTellraw, parseNameMap } from '../src/qq-chat.js';
-import { fetchMcsmOutput, parseMcPlayerChat, McsmOutputRelay } from '../src/mcsm.js';
+import { makeQqComponents, parseNameMap } from '../src/qq-chat.js';
 import { PluginChatExchange, PluginConnectionState, matchesPluginKey } from '../src/plugin-chat.js';
 
 test('/list 显示当前在线人数和完整名单，零人显示无且不显示历史玩家', async () => {
@@ -41,41 +40,37 @@ test('/list 显示当前在线人数和完整名单，零人显示无且不显�
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('QQ 群聊按开关经 RCON 显示；去重、忽略机器人及未知命令', async () => {
+test('QQ 群聊只进入独立插件队列；去重并忽略未知命令', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123', qqToMcEnabled: true };
-    const commands = [];
-    const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return ''; }, send: async () => {} });
+    store.config = { allowedGroups: 'GROUP_OPENID_123', qqToMcEnabled: true, chatTransport: 'direct' };
+    const calls = [];
+    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return ''; } });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: '群昵称', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, messageId: 'chat-1', content: '你好' };
     await bridge.handleEvent(event);
     await bridge.handleEvent(event);
     await bridge.handleEvent({ ...event, senderIsBot: true, messageId: 'chat-2' });
     await bridge.handleEvent({ ...event, messageId: 'chat-3', content: '/unknown' });
-    assert.equal(commands.length, 1);
-    assert.match(commands[0], /^tellraw @a /);
-    const payload = JSON.parse(commands[0].slice('tellraw @a '.length));
-    assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称：你好' }]);
+    assert.deepEqual(calls, []);
+    const queued = bridge.exchangePluginChat({ ack: 0, sent: [] }).receive;
+    assert.equal(queued.length, 1);
+    assert.deepEqual(queued[0].components, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称：你好' }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('QQ 文本不会注入 RCON 命令或颜色；只允许模板控制样式', () => {
-  const command = makeQqTellraw('&a[QQ群]&r ${userName}: ${message}', { userName: 'A&c', message: 'hello "}\nstop\n&a', groupId: 'G' });
-  assert.ok(!command.includes('\n'));
-  assert.match(command, /^tellraw @a /);
-  const payload = JSON.parse(command.slice('tellraw @a '.length));
-  assert.deepEqual(payload.extra, [{ text: '[QQ群]', color: 'green' }, { text: ' A&c: hello "} stop &a' }]);
-  assert.throws(() => makeQqTellraw('${bad} ${userName} ${message}', { userName: 'x', message: 'y' }), /占位符/);
+  const command = makeQqComponents('&a[QQ群]&r ${userName}: ${message}', { userName: 'A&c', message: 'hello "}\nstop\n&a', groupId: 'G' });
+  assert.deepEqual(command, [{ text: '[QQ群]', color: 'green' }, { text: ' A&c: hello "} stop &a' }]);
+  assert.throws(() => makeQqComponents('${bad} ${userName} ${message}', { userName: 'x', message: 'y' }), /占位符/);
 });
 
 test('QQ 昵称附带的不可见状态字符不进入 MC 聊天', () => {
-  const command = makeQqTellraw('&a[${groupName}]&r ${userName}：${message}', {
+  const command = makeQqComponents('&a[${groupName}]&r ${userName}：${message}', {
     userName: 'Beibing\u2067', groupName: '生存群', message: '我试试'
   });
-  const payload = JSON.parse(command.slice('tellraw @a '.length));
-  assert.deepEqual(payload.extra, [{ text: '[生存群]', color: 'green' }, { text: ' Beibing：我试试' }]);
-  assert.ok(!command.includes('\u2067'));
+  assert.deepEqual(command, [{ text: '[生存群]', color: 'green' }, { text: ' Beibing：我试试' }]);
+  assert.ok(!JSON.stringify(command).includes('\u2067'));
 });
 
 test('群名称与成员名按 OpenID 映射，旧模板自动升级', async () => {
@@ -87,47 +82,15 @@ test('群名称与成员名按 OpenID 映射，旧模板自动升级', async () 
       qqToMcTemplate: '&a[QQ群]&r ${userName}: ${message}',
       groupNames: 'GROUP_OPENID_123=生存群', memberNames: 'USER_OPENID_123=AAA钻石批发'
     };
-    const commands = [];
-    const bridge = new Bridge(store, { rcon: async (_config, command) => commands.push(command) });
+    const bridge = new Bridge(store, { rcon: async () => { throw new Error('聊天不能调用 RCON'); } });
     await bridge.handleEvent({ kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: 'Beibing', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, content: '进服测试' });
-    const payload = JSON.parse(commands[0].slice('tellraw @a '.length));
-    assert.deepEqual(payload.extra, [{ text: '[生存群]', color: 'green' }, { text: ' AAA钻石批发：进服测试' }]);
+    const queued = bridge.exchangePluginChat({ ack: 0, sent: [] }).receive;
+    assert.deepEqual(queued[0].components, [{ text: '[生存群]', color: 'green' }, { text: ' AAA钻石批发：进服测试' }]);
     assert.equal(parseNameMap('GROUP_OPENID_123=生存群').get('GROUP_OPENID_123'), '生存群');
     assert.throws(() => parseNameMap('GROUP_OPENID_123=一\nGROUP_OPENID_123=二'), /重复/);
     assert.throws(() => validateConfig({ groupNames: 'bad line' }), /群名称映射格式/);
     assert.equal(publicConfig({ qqToMcTemplate: '&a[QQ群]&r ${userName}: ${message}' }).qqToMcTemplate, '&a[${groupName}]&r ${userName}：${message}');
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('MCSManager 输出接口仅后台使用密钥，并识别玩家聊天', async () => {
-  const config = { mcsmBaseUrl: 'https://panel.example.com/', mcsmApiKey: 'secret-key', mcsmDaemonId: 'daemon_123', mcsmInstanceUuid: 'instance_123' };
-  const calls = [];
-  const output = await fetchMcsmOutput(config, async (url, options) => {
-    calls.push({ url, options });
-    return { ok: true, json: async () => ({ status: 200, data: '[12:00:00] [Server thread/INFO]: <Alice> hello\n' }) };
-  });
-  assert.match(calls[0].url.href, /protected_instance\/outputlog/);
-  assert.equal(calls[0].url.searchParams.get('apikey'), 'secret-key');
-  assert.equal(calls[0].url.searchParams.get('uuid'), 'instance_123');
-  assert.equal(calls[0].options.headers['X-Requested-With'], 'XMLHttpRequest');
-  assert.deepEqual(parseMcPlayerChat(output.trim()), { player: 'Alice', content: 'hello' });
-  assert.equal(parseMcPlayerChat('[12:00:00] [Server thread/INFO]: [QQ群] x: hello'), null);
-  await assert.rejects(fetchMcsmOutput(config, async () => ({ ok: false, status: 403 })), /HTTP 403/);
-  await assert.rejects(fetchMcsmOutput(config, async () => ({ ok: false, status: 403, json: async () => ({ status: 403, data: 'The administrator has disabled the use of the API key. Set "enableApiKey" to "true".' }) })), /启用 enableApiKey/);
-});
-
-test('MC 输出轮询先建立基线，只转发后来完整的新聊天', async () => {
-  const delivered = [];
-  const snapshots = [
-    '[12:00:00] [Server thread/INFO]: <Alice> old\n',
-    '[12:00:00] [Server thread/INFO]: <Alice> old\n[12:00:01] [Server thread/INFO]: <Bob> new\n',
-    '[12:00:00] [Server thread/INFO]: <Alice> old\n[12:00:01] [Server thread/INFO]: <Bob> new\n'
-  ];
-  const relay = new McsmOutputRelay({}, chat => delivered.push(chat), error => { throw error; }, async () => snapshots.shift());
-  relay.running = true;
-  await relay.poll(); await relay.poll(); await relay.poll();
-  relay.stop();
-  assert.deepEqual(delivered, [{ player: 'Bob', content: 'new' }]);
 });
 
 test('MC → QQ 只在开关开启且机器人就绪时推送到允许群', async () => {
@@ -162,7 +125,7 @@ test('插件双向交换去重并等待确认，不依赖 MCSManager 或 RCON �
   assert.deepEqual(exchange.exchange({ ack: 1, epoch: first.epoch, sent: [] }).receive, []);
   assert.throws(() => exchange.exchange({ ack: 1, sent: [{ id: 'bad', player: 'Steve', message: 'x' }] }), /格式/);
   const next = validateConfig({ chatTransport: 'plugin', pluginKey: 'A'.repeat(40), qqToMcEnabled: true, mcToQqEnabled: true, qqAppId: '12345678', qqAppSecret: 'secret', allowedGroups: 'GROUP_OPENID_123' });
-  assert.equal(next.chatTransport, 'plugin');
+  assert.equal(publicConfig(next).chatTransport, 'plugin');
   assert.equal(publicConfig(next).pluginKey, undefined);
   assert.equal(publicConfig(next).pluginKeySet, true);
   assert.equal(matchesPluginKey(`Bearer ${next.pluginKey}`, next.pluginKey), true);
@@ -188,7 +151,7 @@ test('插件玩家进出服只播报玩家动作，重复事件不重发', async
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', mcToQqEnabled: true };
+    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', mcToQqEnabled: true, presenceNotifyEnabled: true };
     const sent = [];
     const bridge = new Bridge(store);
     bridge.bot = { sendText: async (_target, content) => sent.push(content) };
@@ -201,13 +164,13 @@ test('插件玩家进出服只播报玩家动作，重复事件不重发', async
     bridge.exchangePluginChat({ ack: 0, sent: events });
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(sent, [
-      '[服务器] Alice 进入了服务器',
-      '[服务器] Alice 离开了服务器'
+      'Alice 进入了服务器',
+      'Alice 离开了服务器'
     ]);
     bridge.exchangePluginChat({ ack: 0, sent: events });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 2);
-    store.config.mcToQqEnabled = false;
+    store.config.presenceNotifyEnabled = false;
     bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-next', kind: 'join', player: 'Bob', players: ['Bob'] }] });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 2);
@@ -226,11 +189,11 @@ test('插件心跳只在上线和连续断开 30 秒后触发状态变化', () =
   assert.equal(monitor.observe(50_001), 'online');
 });
 
-test('开关服状态只在插件模式且 MC → QQ 开启时发群，Bot 未就绪先等候', async () => {
+test('开关服状态使用无项目前缀模板，Bot 未就绪先等候', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', mcToQqEnabled: true };
+    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', mcToQqEnabled: true, serverStatusNotifyEnabled: true };
     const bridge = new Bridge(store);
     const sent = [];
     bridge.exchangePluginChat({ ack: 0, sent: [] });
@@ -238,49 +201,41 @@ test('开关服状态只在插件模式且 MC → QQ 开启时发群，Bot 未�
     bridge.bot = { sendText: async (_target, content) => sent.push(content) };
     bridge.status = '已连接';
     await bridge.flushPendingServerStatus();
-    assert.deepEqual(sent, ['[服务器] MC 服务器已上线']);
+    assert.deepEqual(sent, ['服务器已开启']);
     bridge.exchangePluginChat({ ack: 0, sent: [] });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 1);
     assert.equal(bridge.pluginConnection.check(bridge.pluginConnection.lastSeen + 30_000), 'offline');
     await bridge.sendMcServerStatusToQq('offline');
     assert.deepEqual(sent, [
-      '[服务器] MC 服务器已上线',
-      '[服务器] MC 服务器已离线（可能是关服或插件连接中断）'
+      '服务器已开启',
+      '服务器已关闭'
     ]);
-    store.config.mcToQqEnabled = false;
+    store.config.serverStatusNotifyEnabled = false;
     bridge.exchangePluginChat({ ack: 0, sent: [] });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('配置密钥加密保存且读取时不回传', () => {
+test('插件是唯一聊天连接；旧配置字段不再回传或保存', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    const config = validateConfig({ rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123', mcsmBaseUrl: 'https://mcsm.example.com/', mcsmApiKey: 'secret-mcsm', mcsmDaemonId: 'daemon_123', mcsmInstanceUuid: 'instance_123' });
-    store.saveConfig(config);
-    const raw = readFileSync(join(dir, 'config.enc'), 'utf8');
-    assert.ok(!raw.includes('secret-pass'));
-    assert.ok(!raw.includes('secret-mcsm'));
-    assert.equal(publicConfig(config).qqAppSecret, undefined);
-    assert.equal(publicConfig(config).qqAppSecretSet, true);
-    assert.equal(publicConfig(config).mcsmApiKey, undefined);
-    assert.equal(publicConfig(config).mcsmApiKeySet, true);
-    assert.equal(publicConfig(config).mcsmBaseUrl, 'https://mcsm.example.com');
-    assert.equal(publicConfig(config).mcsmDaemonId, 'daemon_123');
-    assert.equal(validateConfig({ mcsmApiKey: '' }, config).mcsmApiKey, 'secret-mcsm');
-    assert.throws(() => validateConfig({ mcsmBaseUrl: 'https://user:pass@mcsm.example.com/' }, config), /格式不合法/);
-    assert.equal(validateConfig({ qqAppSecret: '' }, config).qqAppSecret, 'secret-bot');
-    assert.equal(publicConfig(config).mcToQqEnabled, false);
-    assert.equal(publicConfig(config).qqToMcEnabled, false);
-    const toggled = validateConfig({ mcToQqEnabled: true, qqToMcEnabled: false }, config);
-    assert.equal(publicConfig(toggled).mcToQqEnabled, true);
-    assert.equal(publicConfig(toggled).qqToMcEnabled, false);
-    assert.equal(publicConfig(toggled).qqToMcTemplate, '&a[${groupName}]&r ${userName}：${message}');
-    assert.throws(() => validateConfig({ mcToQqEnabled: true }, { qqAppId: '12345678', qqAppSecret: 'x', allowedGroups: 'GROUP_OPENID_123' }), /MCSManager/);
-    assert.throws(() => validateConfig({ qqToMcEnabled: 'anything' }, config), /开关格式无效/);
+    const config = validateConfig({ rconPassword: 'secret-pass', qqAppId: '12345678', qqAppSecret: 'secret-bot', allowedGroups: 'GROUP_OPENID_123', pluginKey: 'A'.repeat(40), qqToMcEnabled: true, mcToQqEnabled: true });
+    store.saveConfig({ ...config, chatTransport: 'direct', mcsmBaseUrl: 'https://old.example.com', mcsmApiKey: 'old-secret' });
+    const loaded = new Storage(dir);
+    assert.equal(loaded.config.chatTransport, undefined);
+    assert.equal(loaded.config.mcsmApiKey, undefined);
+    assert.equal(publicConfig(loaded.config).chatTransport, 'plugin');
+    assert.equal(publicConfig(loaded.config).mcsmApiKeySet, undefined);
+    assert.equal(publicConfig(loaded.config).pluginKeySet, true);
+    assert.equal(publicConfig(loaded.config).qqAppSecretSet, true);
+    assert.equal(publicConfig(loaded.config).qqToMcEnabled, true);
+    assert.equal(publicConfig(loaded.config).mcToQqEnabled, true);
+    assert.ok(!readFileSync(join(dir, 'config.enc'), 'utf8').includes('old-secret'));
+    assert.throws(() => validateConfig({ chatTransport: 'direct' }, config), /只支持独立插件/);
+    assert.throws(() => validateConfig({ mcToQqEnabled: true }, { qqAppId: '12345678', qqAppSecret: 'x', allowedGroups: 'GROUP_OPENID_123' }), /插件 Key/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -319,25 +274,27 @@ test('QQ 玩家命令日志单独加密保存，最多保留 200 条', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('官方 Bot 自填 QQ 并二次核对后登记；玩家绑定另行执行', async () => {
+test('官方 Bot 自填 QQ 并二次核对后登记，MC 绑定以 AQQBot 为准', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123' };
     const calls = [];
-    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '已执行'; }, send: async () => {} });
+    let owner = null;
+    const bridge = new Bridge(store, { rcon: async (_config, command) => {
+      calls.push(command);
+      if (command.startsWith('aqqbot whitelist query player')) return 'QQ号: ' + (owner ?? 'null') + '\\n游戏名: implayer';
+      if (command.startsWith('aqqbot whitelist bind')) { owner = '36000000'; return '成功绑定'; }
+      throw new Error('意外命令');
+    } });
     const reply = bridge.beginRegistration('USER_OPENID_123', 'GROUP_OPENID_123', '/qqbind 36000000');
     const code = reply.match(/BIND-[A-F0-9]{6}/)[0];
     assert.match(bridge.confirmRegistration('OTHER_OPENID_123', 'GROUP_OPENID_123', code), /无效/);
-    assert.match(bridge.confirmRegistration('USER_OPENID_123', 'OTHER_GROUP_123', code), /无效/);
     assert.match(bridge.confirmRegistration('USER_OPENID_123', 'GROUP_OPENID_123', code), /已登记/);
     assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
-    assert.equal(store.state.bindings.USER_OPENID_123, undefined);
+    assert.equal(store.state.bindings, undefined);
     assert.deepEqual(calls, []);
-    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind implayer'), /绑定命令/);
-    assert.deepEqual(calls, ['aqqbot whitelist bind 36000000 implayer']);
-    assert.equal(store.getBindings('USER_OPENID_123')[0].status, '已发送，待服务器确认');
-    assert.match(bridge.confirmRegistration('USER_OPENID_123', 'GROUP_OPENID_123', code), /无效/);
+    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind implayer'), /已为玩家 implayer 发送 AQQBot 绑定命令/);
+    assert.deepEqual(calls, ['aqqbot whitelist query player implayer', 'aqqbot whitelist bind 36000000 implayer', 'aqqbot whitelist query player implayer']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -350,133 +307,28 @@ test('未登记时任何功能命令先要求登记，登记后才能查询', as
     const bridge = new Bridge(store, { motd: async () => ({ motd: '测试服务器', online: 5, max: 100, players: ['谢谢', 'xx', 'xx2', 'xx3'] }), send: async (_event, message) => replies.push(message) });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
     await bridge.handleEvent({ ...event, messageId: '1', content: '/motd' });
-    assert.equal(store.state.users.USER_OPENID_123, undefined);
     assert.match(replies[0], /\/qqbind/);
-    bridge.lastCommand.delete('USER_OPENID_123');
+    bridge.lastCommand.clear();
     await bridge.handleEvent({ ...event, messageId: '2', content: '/qqbind 36000000' });
     const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
     await bridge.handleEvent({ ...event, messageId: '3', content: code });
     assert.ok(store.state.users.USER_OPENID_123);
-    assert.equal(store.state.bindings.USER_OPENID_123, undefined);
-    bridge.lastCommand.delete('USER_OPENID_123');
+    bridge.lastCommand.clear();
     await bridge.handleEvent({ ...event, messageId: '4', content: '/motd' });
     assert.match(replies.at(-1), /测试服务器/);
     assert.match(replies.at(-1), /当前在线：5 人（上限 100 人）/);
     assert.match(replies.at(-1), /在线玩家：（谢谢，xx，xx2，xx3；仅显示服务器提供的 4 人）/);
-    assert.ok(replies.at(-1).indexOf('当前在线') < replies.at(-1).indexOf('服务器介绍'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('首次 /mcbind 先要求登记，确认之后才调用 RCON', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.config = { allowedGroups: 'GROUP_OPENID_123' };
-    const replies = [];
-    const commands = [];
-    const bridge = new Bridge(store, { rcon: async (_config, command) => { commands.push(command); return 'ok'; }, send: async (_event, text) => replies.push(text) });
-    const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
-    await bridge.handleEvent({ ...event, messageId: '11', content: '/mcbind implayer' });
-    assert.deepEqual(commands, []);
-    assert.equal(store.state.bindings.USER_OPENID_123, undefined);
-    bridge.lastCommand.delete('USER_OPENID_123');
-    await bridge.handleEvent({ ...event, messageId: '12', content: '/qqbind 36000000' });
-    const code = replies.at(-1).match(/BIND-[A-F0-9]{6}/)[0];
-    await bridge.handleEvent({ ...event, messageId: '13', content: code });
-    assert.deepEqual(commands, []);
-    bridge.lastCommand.delete('USER_OPENID_123');
-    await bridge.handleEvent({ ...event, messageId: '14', content: '/mcbind implayer' });
-    assert.deepEqual(commands, ['aqqbot whitelist bind 36000000 implayer']);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('同一 QQ 不可被其他 OpenID 冒用，管理员可修改和删除本地记录', () => {
+test('同一 QQ 只能登记到一个 OpenID', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
     const store = new Storage(dir);
     store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
     assert.throws(() => store.register('OTHER_OPENID_123', '36000000', 'GROUP_OPENID_123'), /已被/);
-    store.recordBinding('USER_OPENID_123', 'implayer', '已发送');
-    store.updateUser('USER_OPENID_123', '36000001', 'newplayer');
-    assert.equal(store.listUsers()[0].qq, '36000001');
-    assert.match(store.listUsers()[0].bindings[0].status, /需核对服务器/);
-    store.deleteUser('USER_OPENID_123');
-    assert.deepEqual(store.listUsers(), []);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('旧版单玩家记录加载后保留并转换为多玩家结构', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
-    store.state.bindings.USER_OPENID_123 = { player: 'oldplayer', status: '已发送', updatedAt: '2026-01-01T00:00:00.000Z' };
-    store.saveState();
-    const restored = new Storage(dir);
-    assert.deepEqual(restored.getBindings('USER_OPENID_123').map(item => item.player), ['oldplayer']);
-    restored.recordBinding('USER_OPENID_123', 'newplayer', '已发送');
-    assert.equal(new Storage(dir).getBindings('USER_OPENID_123').length, 2);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('一个 QQ 可绑定多个玩家，解绑仅移除指定玩家，最后才能解除 QQ 登记', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
-    const calls = [];
-    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return command.includes('unbind') ? '成功解绑' : '成功绑定'; }, send: async () => {} });
-    await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind player_one');
-    await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind player_two');
-    assert.deepEqual(store.getBindings('USER_OPENID_123').map(item => item.player), ['player_one', 'player_two']);
-    assert.throws(() => store.unregister('USER_OPENID_123'), /先用 \/mcunbind/);
-    assert.match(await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind player_one'), /已从当前 QQ 号解绑/);
-    assert.deepEqual(store.getBindings('USER_OPENID_123').map(item => item.player), ['player_two']);
-    assert.deepEqual(calls, ['aqqbot whitelist bind 36000000 player_one', 'aqqbot whitelist bind 36000000 player_two', 'aqqbot whitelist unbind name player_one']);
-    assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
-    await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind player_two');
-    assert.match(bridge.unbindQq('USER_OPENID_123', '/qqunbind'), /已解除登记/);
-    assert.equal(store.state.users.USER_OPENID_123, undefined);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('RCON 未确认解绑时保留本地记录；其他 QQ 不能占用相同玩家', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
-    store.register('OTHER_OPENID_123', '36000001', 'GROUP_OPENID_123');
-    store.recordBinding('USER_OPENID_123', 'implayer', '已发送');
-    assert.throws(() => store.recordBinding('OTHER_OPENID_123', 'ImPlayer', '已发送'), /已绑定其他 QQ/);
-    const bridge = new Bridge(store, { rcon: async () => '', send: async () => {} });
-    assert.match(await bridge.unbindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunbind implayer'), /未明确确认/);
-    assert.equal(store.getBindings('USER_OPENID_123').length, 1);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('服务器明确拒绝绑定时不占用玩家名', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
-    const bridge = new Bridge(store, { rcon: async () => '绑定失败：已达到上限', send: async () => {} });
-    assert.match(await bridge.bindPlayer('USER_OPENID_123', 'GROUP_OPENID_123', '/mcbind implayer'), /未添加本地记录/);
-    assert.deepEqual(store.getBindings('USER_OPENID_123'), []);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('/mcunallbind 仅逐条发送按玩家解绑命令，失败时停止且不删除剩余记录', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
-  try {
-    const store = new Storage(dir);
-    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
-    for (const player of ['player_one', 'player_two', 'player_three']) store.recordBinding('USER_OPENID_123', player, '已发送');
-    const calls = [];
-    const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return command.includes('player_two') ? '解绑失败' : '成功解绑'; }, send: async () => {} });
-    assert.match(await bridge.unbindAllPlayers('USER_OPENID_123', 'GROUP_OPENID_123', '/mcunallbind'), /已停止/);
-    assert.deepEqual(calls, ['aqqbot whitelist unbind name player_one', 'aqqbot whitelist unbind name player_two']);
-    assert.deepEqual(store.getBindings('USER_OPENID_123').map(item => item.player), ['player_two', 'player_three']);
-    assert.equal(store.state.users.USER_OPENID_123.qq, '36000000');
+    store.unregister('USER_OPENID_123');
+    assert.equal(store.qqOwner('36000000'), null);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -489,18 +341,18 @@ test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async
     const calls = [];
     const bridge = new Bridge(store, { rcon: async (_config, command) => { calls.push(command); return '成功'; }, motd: async () => { calls.push('motd'); return {}; }, send: async (_event, reply) => replies.push(reply) });
     const event = { kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' } };
-    for (const command of ['/qqunbind', '/mcbind implayer', '/mcunbind implayer', '/mcunallbind', '/motd']) {
+    for (const command of ['/qqunbind', '/mcbind implayer', '/mcunbind implayer', '/mcunallbind', '/mymc', '/motd']) {
       bridge.lastCommand.clear();
       await bridge.handleEvent({ ...event, messageId: command, content: command });
       assert.match(replies.at(-1), /\/qqbind/);
     }
     assert.deepEqual(calls, []);
-    assert.equal(store.listPlayerLog().length, 5);
+    assert.equal(store.listPlayerLog().length, 6);
     assert.equal(store.listPlayerLog()[0].status, '未登记拦截');
     assert.equal(store.listPlayerLog()[0].category, '服务器查询');
     bridge.lastCommand.clear();
     await bridge.handleEvent({ ...event, messageId: 'legacy', content: '/register 36000000' });
-    assert.equal(replies.length, 5);
+    assert.equal(replies.length, 6);
     await bridge.handleEvent({ ...event, messageId: 'qqbind', content: '/qqbind 36000000' });
     assert.match(replies.at(-1), /BIND-[A-F0-9]{6}/);
     assert.equal(store.listPlayerLog()[0].category, 'QQ 登记');
@@ -550,4 +402,52 @@ test('MOTD 状态协议读取描述、在线人数和服务器公开的玩家名
     assert.equal(result.online, 2);
     assert.deepEqual(result.players, ['谢谢', 'xx']);
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+
+test('插件整库快照只接受受限 QQ 和玩家数据，并关联登记 OpenID', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-snapshot-'));
+  const store = new Storage(dir);
+  store.register('OPENID_12345', '12345678', 'GROUP_OPENID_123');
+  const bridge = new Bridge(store);
+  bridge.exchangePluginChat({
+    ack: 0,
+    sent: [],
+    aqqbotSnapshot: {
+      available: true,
+      capturedAt: Date.now(),
+      rows: [
+        { qq: '12345678', players: ['00123', 'Steve', 'bad name', 'Steve'] },
+        { qq: 'not-qq', players: ['Alex'] }
+      ]
+    }
+  });
+  const snapshot = bridge.getAqqbotDatabase();
+  assert.equal(snapshot.available, true);
+  assert.deepEqual(snapshot.rows, [{ qq: '12345678', players: ['00123', 'Steve'], openid: 'OPENID_12345' }]);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+
+test('8.7.0 服务器日志批次受开关、大小限制和批次去重保护，并记录插件版本', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-server-log-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { serverLogEnabled: true };
+    const bridge = new Bridge(store);
+    const request = {
+      ack: 0, sent: [], pluginVersion: '1.1.3',
+      serverLogs: { source: 'run12345', start: 10, end: 30, lines: ['[INFO] started', '[WARN] sample'] }
+    };
+    assert.equal(bridge.exchangePluginChat(request).logEnabled, true);
+    assert.equal(bridge.pluginVersion, '1.1.3');
+    assert.deepEqual(bridge.getServerLogs().lines.map(item => item.line), ['[INFO] started', '[WARN] sample']);
+    bridge.exchangePluginChat(request);
+    assert.equal(bridge.getServerLogs().lines.length, 2);
+    bridge.exchangePluginChat({ ack: 0, sent: [], serverLogs: { source: 'run12345', start: 30, end: 40, lines: ['x'.repeat(1001)] } });
+    assert.equal(bridge.getServerLogs().lines.length, 2);
+    store.config.serverLogEnabled = false;
+    assert.equal(bridge.exchangePluginChat({ ack: 0, sent: [] }).logEnabled, false);
+    assert.throws(() => bridge.exchangePluginChat({ ack: 0, sent: [], pluginVersion: 'bad version' }), /插件版本格式无效/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

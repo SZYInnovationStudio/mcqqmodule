@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+  <title>QQ 登记 · MC × QQ</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/registrations.css"><script type="module" src="/registrations.js"></script>
+</head>
+<body><main class="shell">
+  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a class="active" aria-current="page" href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+  <div class="page-intro"><div><div class="eyebrow">8.7.0 · 登记关系</div><h1>QQ 号与 OpenID</h1><p>新建、查看、修改或删除 QQ 登记。MC 玩家绑定请到绑定管理页操作。</p></div><button id="refresh" class="secondary" type="button">刷新列表</button></div>
+  <section class="panel">
+    <form id="create-registration" class="registration-create"><label>QQ 号<input id="create-qq" inputmode="numeric" autocomplete="off" required placeholder="5–20 位数字"></label><label>OpenID<input id="create-openid" autocomplete="off" required placeholder="输入 OpenID"></label><label>登记群 OpenID（可选）<input id="create-group" autocomplete="off" placeholder="可留空"></label><button class="secondary" type="submit">新建登记</button></form><div class="registration-switch"><label><input id="unlink-on-delete" type="checkbox"> 删除 QQ 登记时，同时解绑 AQQBot 中该 QQ 名下全部 MC 玩家</label><small>默认关闭。开启后，需输入 QQ 号二次确认；若解绑未全部确认，登记会保留。</small></div>
+    <label class="registration-search">搜索 QQ 号或 OpenID<input id="search" type="search" autocomplete="off" placeholder="输入 QQ 号或 OpenID"></label>
+    <p id="registration-message" class="message" role="status"></p>
+    <p id="registration-count" class="registration-count"></p>
+    <div class="registration-scroll"><table class="registration-table"><thead><tr><th scope="col">QQ 号</th><th scope="col">OpenID</th><th scope="col">登记群 OpenID</th><th scope="col">登记时间</th><th scope="col">操作</th></tr></thead><tbody id="registration-rows"></tbody></table></div>
+  </section>
+</main></body></html>
+
+
+
+

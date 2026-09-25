@@ -34,7 +34,7 @@ export function validateQqTemplate(template) {
   return template;
 }
 
-export function makeQqTellraw(template, values) {
+export function makeQqComponents(template, values) {
   validateQqTemplate(template);
   const vars = {
     userName: clean(values.userName, 48) || '群友',
@@ -65,13 +65,13 @@ export function makeQqTellraw(template, values) {
       else if (FORMATS[code]) style = { ...style, [FORMATS[code]]: true };
     }
     append(template.slice(cursor));
-    return `tellraw @a ${JSON.stringify({ text: '', extra })}`;
+    return extra;
   };
-  let command = render();
-  while (command.length > 512 && vars.message.length > 1) {
+  let components = render();
+  while (JSON.stringify(components).length > 512 && vars.message.length > 1) {
     vars.message = vars.message.slice(0, -1);
-    command = render();
+    components = render();
   }
-  if (command.length > 512) throw new Error('QQ → MC 模板过长，无法通过 RCON 发送');
-  return command;
+  if (JSON.stringify(components).length > 512) throw new Error('QQ → MC 模板过长');
+  return components;
 }

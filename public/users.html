@@ -2,11 +2,26 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
-  <title>已绑定用户 · MC × QQ</title>
+  <title>AQQBot 查询 · MC × QQ</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/users.css"><script type="module" src="/users.js"></script>
 </head>
 <body><main class="shell">
-  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a class="active" aria-current="page" href="/users">已绑定用户</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
-  <div class="page-intro"><div><div class="eyebrow">用户管理</div><h1>已登记 / 已绑定用户</h1><p>登记 QQ 号后自动出现在这里，不需要管理员先审核。一个 QQ 可对应多个玩家；玩家名为空表示只登记了 QQ。</p></div><button id="refresh" class="secondary">刷新列表</button></div>
-  <section class="panel"><p class="hint">用户填写的 QQ 号仅经本人二次确认，官方 Bot 不提供数字 QQ 号归属证明。这里的修改和删除只影响本平台记录，<strong>不会自动修改或解除 AQQBot 服务器里的绑定</strong>；如需同步，请在服务器插件中单独处理。</p><p id="page-message" class="message" role="status"></p><div id="users-list" class="users-list">正在加载…</div></section>
+  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a class="active" aria-current="page" href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+  <div class="page-intro"><div><div class="eyebrow">实时查询</div><h1>AQQBot 绑定查询</h1><p>输入 QQ 号或 Minecraft 玩家名，直接读取服务器 AQQBot 的当前结果。管理操作请到独立的“绑定管理”页面。</p></div></div>
+  <section class="panel">
+    <form id="query-form" class="query-form">
+      <label for="query-type">查询方式</label>
+      <select id="query-type" name="type"><option value="qq">QQ 号</option><option value="player">玩家名</option></select>
+      <label for="query-value" id="query-label">QQ 号</label>
+      <input id="query-value" name="value" inputmode="numeric" autocomplete="off" required placeholder="输入 QQ 号">
+      <button type="submit" class="primary">查询 AQQBot</button>
+    </form>
+    <p id="query-message" class="message" role="status"></p>
+    <div id="query-result" class="query-result" hidden>
+      <h2>服务器查询结果</h2>
+      <p id="result-qq"></p>
+      <p id="result-players"></p>
+    </div>
+    <p class="query-note">本页只查询，不修改 AQQBot 绑定。</p>
+  </section>
 </main></body></html>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+<title>消息模板 · MC × QQ</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/templates.css"><script type="module" src="/templates.js"></script>
+</head><body><main class="shell">
+<header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a class="active" aria-current="page" href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+<div class="page-intro"><div><div class="eyebrow">8.8.0 · 自定义消息</div><h1>消息模板</h1><p>新安装默认使用通用服务器文案，不附加项目名称前缀；已有模板保持原样，也可由管理员自行修改。</p></div></div>
+<section class="panel"><form id="template-form" class="template-form">
+<div class="template-switches"><label><span><strong>玩家进服／退服通知</strong><small>独立于普通 MC 聊天转发</small></span><input type="checkbox" name="presenceNotifyEnabled"></label><label><span><strong>服务器开启／关闭通知</strong><small>正常关服立即上报，异常中断由心跳判断</small></span><input type="checkbox" name="serverStatusNotifyEnabled"></label></div>
+<div class="template-grid">
+<label>QQ → MC 普通聊天<input name="qqToMcTemplate" required><small>变量：${groupName} ${userName} ${message} ${groupId}</small></label>
+<label>MC → QQ 普通聊天<input name="mcToQqTemplate" required><small>必须包含：${player} ${message}</small></label>
+<label>玩家进服<input name="presenceJoinTemplate" required><small>必须包含 ${player}；可用 ${online}</small></label>
+<label>玩家退服<input name="presenceQuitTemplate" required><small>必须包含 ${player}；可用 ${online}</small></label>
+<label>服务器开启<input name="serverOnlineTemplate" required><small>可用 ${time}</small></label>
+<label>服务器关闭<input name="serverOfflineTemplate" required><small>可用 ${time}</small></label>
+</div><div class="form-footer"><span class="hint">模板只能是一行，最多 300 字。</span><button class="primary" type="submit">保存模板</button></div>
+</form><p id="template-message" class="message" role="status"></p></section>
+</main></body></html>
+
+
+

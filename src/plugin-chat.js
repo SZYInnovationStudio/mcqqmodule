@@ -30,9 +30,10 @@ export class PluginConnectionState {
 }
 
 export class PluginChatExchange {
-  constructor(onChat, onPresence = () => {}) {
+  constructor(onChat, onPresence = () => {}, onLifecycle = () => {}) {
     this.onChat = onChat;
     this.onPresence = onPresence;
+    this.onLifecycle = onLifecycle;
     this.outgoing = [];
     this.nextId = 1;
     this.epoch = randomUUID();
@@ -58,13 +59,15 @@ export class PluginChatExchange {
       } else if (kind === 'join' || kind === 'quit') {
         const validName = name => typeof name === 'string' && name.length >= 1 && name.length <= 40 && !/[\u0000-\u001f\u007f]/u.test(name);
         if (!validName(item.player) || !Array.isArray(item.players) || item.players.length > 200 || !item.players.every(validName)) throw new Error('插件玩家进出事件格式无效');
-      } else throw new Error('插件玩家事件类型无效');
+      } else if (kind !== 'start' && kind !== 'stop') throw new Error('插件玩家事件类型无效');
       if (this.seen.has(item.id)) continue;
       this.seen.add(item.id);
       if (this.seen.size > 2000) this.seen.delete(this.seen.values().next().value);
       Promise.resolve().then(() => kind === 'chat'
         ? this.onChat({ player: item.player, content: item.message })
-        : this.onPresence({ kind, player: item.player, players: item.players })).catch(() => {});
+        : (kind === 'join' || kind === 'quit')
+          ? this.onPresence({ kind, player: item.player, players: item.players })
+          : this.onLifecycle({ kind })).catch(() => {});
     }
     return { epoch: this.epoch, receive: this.outgoing.slice(0, 20) };
   }

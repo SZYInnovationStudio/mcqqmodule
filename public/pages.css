@@ -3,3 +3,6 @@
 .relay-options{display:grid;gap:10px}.relay-option{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px;border:1px solid #34506b;border-radius:10px;background:#0d192a;cursor:pointer}.relay-option span{display:grid;gap:5px}.relay-option strong{font-size:15px;color:#eaf4fb}.relay-option small{font-size:13px;line-height:1.4;color:#9fb2c5}.relay-option input[type=checkbox]{flex:none;width:22px;height:22px;margin:0;accent-color:#69dfbc;cursor:pointer}
 .fields textarea{width:100%;min-height:80px;resize:vertical;margin-top:8px;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px;outline:none;font:14px Inter,"Segoe UI","Microsoft YaHei",sans-serif}.fields textarea:focus{border-color:#6be3c0;box-shadow:0 0 0 3px #6be3c02a}.fields textarea::placeholder{color:#6f849b}
 .fields select{width:100%;margin-top:8px;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px;font:14px Inter,"Segoe UI","Microsoft YaHei",sans-serif}.fields select:focus{outline:2px solid #6be3c0}
+
+.nav{max-width:100%;overflow-x:auto}
+@media(max-width:760px){.nav{justify-content:flex-start}.nav a{flex:none}}

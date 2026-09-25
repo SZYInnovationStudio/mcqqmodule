@@ -1,1 +1,14 @@
-.users-list{display:grid;gap:14px}.user-card{padding:19px;border:1px solid #304960;border-radius:12px;background:#102035}.user-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.user-head strong{font-size:18px}.user-card .hint{overflow-wrap:anywhere;margin:10px 0 18px}.user-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.user-form label{font-size:14px;font-weight:600;color:#d7e2ee}.user-form input{width:100%;margin-top:8px;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px}.user-actions{display:flex;align-items:end;gap:9px}.danger{border-radius:9px;padding:11px 17px;font-size:14px;font-weight:700;color:#ffc7c2;background:#482728;border:1px solid #915054}.danger:hover{border-color:#ff9b91}.user-note{color:#a3b8cb;align-self:center}.user-form .message{grid-column:1/-1;margin:0}.user-form .message:empty{display:none}@media(max-width:720px){.user-form{grid-template-columns:1fr}.user-head{align-items:start}.user-actions{flex-wrap:wrap}}
+﻿.query-form{display:grid;grid-template-columns:minmax(150px,220px) minmax(220px,1fr) auto;gap:10px 14px;align-items:end}
+.query-form label{font-size:14px;font-weight:600;color:#d7e2ee}
+.query-form label:first-of-type{grid-column:1}
+.query-form label:nth-of-type(2){grid-column:2}
+.query-form select,.query-form input{width:100%;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px}
+.query-form select{grid-column:1;grid-row:2}
+.query-form input{grid-column:2;grid-row:2}
+.query-form button{grid-column:3;grid-row:2}
+.query-result{margin-top:20px;padding:18px;border:1px solid #304960;border-radius:12px;background:#102035}
+.query-result h2{margin:0 0 12px}
+.query-result p{margin:8px 0;overflow-wrap:anywhere}
+@media(max-width:720px){.query-form{grid-template-columns:1fr}.query-form label:first-of-type,.query-form label:nth-of-type(2),.query-form select,.query-form input,.query-form button{grid-column:1;grid-row:auto}}
+
+.query-note{color:#9fb5c9;font-size:13px;line-height:1.6;margin:14px 0 0}

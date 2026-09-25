@@ -3,3 +3,9 @@
 bridge-url: 'http://127.0.0.1:2556/api/plugin/exchange'
 # 与网页“修改信息”中的插件 Key 完全相同；至少 32 位。
 key: ''
+
+# 只读整库页的数据源；相对于本插件目录，默认指向 plugins/AQQBot/data.yml。
+aqqbot-data-path: '../AQQBot/data.yml'
+
+# 服务器整体日志只读数据源；相对于本插件目录，默认指向服务端 logs/latest.log。
+server-log-path: '../../logs/latest.log'

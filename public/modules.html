@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+<title>模块中心 · MC × QQ</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/modules.css"><script type="module" src="/modules.js"></script>
+</head><body><main class="shell">
+<header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a class="active" aria-current="page" href="/modules">模块中心</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+<div class="page-intro module-intro"><div><div class="eyebrow">8.8.1 · 通用模块平台</div><h1>模块中心</h1><p>集中管理扩展功能、版本升级和运行权限。新版使用通用模块格式，旧版模块继续兼容。</p></div><a class="secondary link-button" href="/MODULE-SPEC.md" target="_blank" rel="noopener">开发规范</a></div>
+<section class="module-overview" aria-label="模块概况"><div><small>已安装</small><strong id="module-count">—</strong><span>个模块</span></div><div><small>运行中</small><strong id="enabled-count">—</strong><span>个模块</span></div><div><small>宿主版本</small><strong id="host-version">—</strong><span>支持新旧格式</span></div></section>
+<div class="module-layout">
+  <section class="panel module-catalog"><div class="panel-head"><div><div class="eyebrow">模块管理</div><h2>已安装模块</h2></div><button id="refresh-modules" class="ghost" type="button">刷新</button></div><p class="section-note">在这里打开设置页、查看版本或临时关闭模块。</p><div id="module-list" class="module-list empty">正在读取…</div><div id="module-errors" class="module-errors" hidden></div></section>
+  <aside class="module-side">
+    <section class="panel module-installer"><div class="panel-head"><div><div class="eyebrow">安装包</div><h2>安装或升级</h2></div><span class="chip">v2 / 旧版</span></div><p>新模块推荐使用 <code>.mcqqmodule</code>。原有 <code>.szydmodule</code> 仍可直接安装和升级。</p><label class="module-file"><span>选择模块包</span><input id="module-file" type="file" accept=".mcqqmodule,.szydmodule,.json,application/json"></label><pre id="module-preview" class="module-preview">尚未选择文件。</pre><button id="install-module" class="primary install-button" type="button" disabled>安装 / 升级</button><p id="module-message" class="message" role="status"></p></section>
+    <section class="panel permission-panel"><div class="eyebrow">运行权限</div><h2>完整宿主能力</h2><p>新版模块可调用 RCON、连接配置、QQ 登记、AQQBot 管理、状态与群通知接口，也可包含多个服务端源码文件。</p><div class="permission-tags"><span>RCON</span><span>配置</span><span>QQ 登记</span><span>AQQBot</span><span>状态与日志</span><span>群通知</span></div><div class="module-warning"><strong>管理员信任边界</strong><span>服务端模块拥有完整运行权限。只安装来源明确、已经审核的模块包。</span></div></section>
+  </aside>
+</div>
+</main></body></html>

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+<title>服务器日志 · MC × QQ</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/server-logs.css"><script type="module" src="/server-logs.js"></script>
+</head><body><main class="shell">
+<header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a class="active" aria-current="page" href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
+<div class="page-intro"><div><div class="eyebrow">8.7.0 · 只读日志</div><h1>服务器日志</h1><p>显示新版插件从 logs/latest.log 增量同步的最近 2000 行。此页面不能执行命令或修改日志。</p></div><button id="refresh-server-logs" class="secondary" type="button">刷新</button></div>
+<section class="panel">
+<div class="server-log-controls"><label class="log-switch"><span><strong>同步服务器日志</strong><small>关闭后插件停止读取和上传新日志</small></span><input id="server-log-enabled" type="checkbox"></label><label>搜索日志<input id="server-log-search" type="search" autocomplete="off" placeholder="输入关键字"></label><label class="check"><input id="pause-server-logs" type="checkbox">暂停自动刷新</label><label class="check"><input id="follow-server-logs" type="checkbox" checked>自动滚到底部</label></div>
+<p id="server-log-message" class="message" role="status"></p><p id="server-log-count" class="server-log-count"></p>
+<pre id="server-log-output" class="server-log-output" tabindex="0">等待日志…</pre>
+</section></main></body></html>
+
+
+

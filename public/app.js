@@ -11,13 +11,12 @@ function view(mode, username = '') {
 }
 
 async function refresh() {
-  const [status, bindings, audit] = await Promise.all([api('status'), api('bindings'), api('audit')]);
+  const [status, audit] = await Promise.all([api('status'), api('audit')]);
   $('bot-status').textContent = status.bot;
   $('rcon-status').textContent = status.rconConfigured ? '已填写' : '未填写';
   $('registered-count').textContent = String(status.registered);
-  $('binding-count').textContent = String(status.bindings);
   if (!status.rconConfigured || status.bot === '未配置') {
-    $('next-title').textContent = '先把连接信息填好';
+    $('next-title').textContent = '先把 QQ Bot、RCON 和插件信息填好';
     $('next-description').textContent = '打开「修改信息」，按顺序填写并保存，再测试连接。';
     $('next-link').href = '/settings';
     $('next-link').textContent = '去修改信息';
@@ -32,7 +31,6 @@ async function refresh() {
     $('next-link').href = '/guide';
     $('next-link').textContent = '看使用教程';
   }
-  renderRecords('bindings', bindings, item => [`${item.qq} ↔ ${item.player}`, `${item.status} · ${new Date(item.updatedAt).toLocaleString()}`], '暂无绑定记录');
   renderRecords('audit', audit, item => [item.detail, `${item.kind} · ${new Date(item.at).toLocaleString()}`], '暂无操作记录');
 }
 
