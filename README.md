@@ -78,3 +78,9 @@ mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-setting
 ```
 
 构建结果位于 `minecraft-plugin/target/szydmc-chat-bridge-1.1.3.jar`。发布时将它复制到 `release/`。
+
+## 结束语
+
+ChatGPT 和我开发，可能有不足之处，谅解，有问题可以提问
+在研究TG和代替AQQBOT请期待
+                                    --ZHANGZHAORUI
