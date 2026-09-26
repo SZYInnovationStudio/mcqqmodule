@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 const FORMAT = 'bridge-module-v2';
 const LEGACY_FORMAT = 'szydmc-module-v1';
 const SUPPORTED_FORMATS = new Set([FORMAT, LEGACY_FORMAT]);
-const SERVER_VERSION = '8.8.1';
+const SERVER_VERSION = '8.8.2';
 const MAX_FILES = 500;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;

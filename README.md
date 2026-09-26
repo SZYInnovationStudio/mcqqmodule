@@ -1,6 +1,6 @@
 # MC × QQ 管理平台
 
-基于 QQ 官方 Bot、Minecraft RCON 和独立 Bukkit 插件的管理平台。当前服务端版本为 **8.8.1**，聊天插件版本为 **1.1.4**。
+基于 QQ 官方 Bot、Minecraft RCON 和独立 Bukkit 插件的管理平台。当前服务端版本为 **8.8.2**，聊天插件版本为 **1.1.4**。
 
 插件只调用 Bukkit 公共 API，适用于 CraftBukkit、Spigot、Paper、Purpur、Leaves，以及其他完整实现 Bukkit API 的衍生服务端。新版以 Spigot 1.13.2 API 编译，`api-version` 为 `1.13`，字节码目标为 Java 8，可覆盖 Minecraft 1.13 至 1.21.11 的 Bukkit 系服务端；实际 Java 版本仍以所用服务端的要求为准。Fabric、Forge、NeoForge 本身不实现 Bukkit API，不在兼容范围内。
 

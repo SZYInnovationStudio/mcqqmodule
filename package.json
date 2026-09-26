@@ -1,6 +1,6 @@
 {
   "name": "mc-qq-bridge",
-  "version": "8.8.1",
+  "version": "8.8.2",
   "private": true,
   "type": "module",
   "engines": {

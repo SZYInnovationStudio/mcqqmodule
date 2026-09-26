@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Storage } from '../src/storage.js';
 import { Bridge } from '../src/bridge.js';
 
-test('/status 和 /桥接状态报告实时连接状态、插件版本与 8.8.1 版本', async () => {
+test('/status 和 /桥接状态报告实时连接状态、插件版本与 8.8.2 版本', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-status-'));
   try {
     const store = new Storage(dir);
@@ -36,7 +36,7 @@ test('/status 和 /桥接状态报告实时连接状态、插件版本与 8.8.1 
     assert.deepEqual(commands, ['list']);
     assert.match(replies[0], /^📊 桥接服务状态\n🕒 当前时间：\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}（UTC\+8）/);
     assert.match(replies[0], /\n🔌 插件连接：正常（最近心跳 \d+ 秒前）/);
-    assert.match(replies[0], /\n🧱 插件版本：1\.1\.3\n🎮 RCON 连接：正常\n🤖 QQ Bot 连接：正常\n🧩 BOT 服务端版本：8\.8\.1$/);
+    assert.match(replies[0], /\n🧱 插件版本：1\.1\.3\n🎮 RCON 连接：正常\n🤖 QQ Bot 连接：正常\n🧩 BOT 服务端版本：8\.8\.2$/);
     bridge.pluginConnection.lastSeen = Date.now() - 31_000;
     bridge.lastCommand.clear();
     await bridge.handleEvent({ ...event, content: '/桥接状态', messageId: 'status-2' });

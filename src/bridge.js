@@ -13,6 +13,7 @@ import { PluginChatExchange, PluginConnectionState } from './plugin-chat.js';
 import { unbindConfirmed, bindRejected, safePlayer, queryPlayerOwner, queryAqqbot } from './aqqbot.js';
 
 const CODE_TTL = 5 * 60 * 1000;
+const PLUGIN_STOP_GRACE_MS = 15_000;
 const readBotVersion = () => JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const BEIJING_TIME = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -56,6 +57,8 @@ export class Bridge {
     this.pluginConnection = new PluginConnectionState();
     this.pluginVersion = '未上报';
     this.pluginConnectionTimer = null;
+    this.pluginStopTimer = null;
+    this.pluginStopGraceMs = deps.pluginStopGraceMs ?? PLUGIN_STOP_GRACE_MS;
     this.pendingServerStatus = null;
     this.aqqbotDatabase = { available: false, reason: '尚未收到插件快照', rows: [], capturedAt: null, receivedAt: null };
     this.serverLogs = [];
@@ -80,6 +83,8 @@ export class Bridge {
     this.stopped = true;
     if (this.pluginConnectionTimer) clearInterval(this.pluginConnectionTimer);
     this.pluginConnectionTimer = null;
+    if (this.pluginStopTimer) clearTimeout(this.pluginStopTimer);
+    this.pluginStopTimer = null;
     this.pendingServerStatus = null;
     this.bot?.stop();
     this.bot = null;
@@ -229,7 +234,20 @@ export class Bridge {
   }
 
   async sendMcLifecycleToQq(event) {
-    await this.sendMcServerStatusToQq(event.kind === 'start' ? 'online' : 'offline');
+    if (event.kind === 'start') {
+      if (this.pluginStopTimer) clearTimeout(this.pluginStopTimer);
+      this.pluginStopTimer = null;
+      if (this.lastServerNotice.status !== 'online') await this.sendMcServerStatusToQq('online');
+      return;
+    }
+    if (this.pluginStopTimer) clearTimeout(this.pluginStopTimer);
+    const stoppedAt = this.pluginConnection.lastSeen;
+    this.pluginStopTimer = setTimeout(() => {
+      this.pluginStopTimer = null;
+      if (this.stopped || this.pluginConnection.lastSeen > stoppedAt) return;
+      void this.sendMcServerStatusToQq('offline').catch(error => this.store.audit('mc-server-status-error', error.message));
+    }, this.pluginStopGraceMs);
+    this.pluginStopTimer.unref?.();
   }
 
   async sendMcServerStatusToQq(status) {

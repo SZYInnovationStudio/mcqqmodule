@@ -1,6 +1,6 @@
 # 上传到 Linux 服务器长期运行
 
-`mc-qq-bridge-full-private-8.8.1.zip` 是**完整私有迁移包**：包含程序、网页、`data/` 内的管理员账户与加密配置、`master.key`、日志、现有 `node_modules`，以及独立聊天插件 JAR。包内 `minecraft-plugin/server-config/config.yml` 已预填与后台一致的插件 Key。它不包含 Git 历史或旧压缩包。请只通过私密渠道上传，不要公开分享或提交到 Git。下面以有 SSH 权限的 Linux 服务器为例。
+`mc-qq-bridge-full-private-8.8.2.zip` 是**完整私有迁移包**：包含程序、网页、`data/` 内的管理员账户与加密配置、`master.key`、日志、现有 `node_modules`，以及独立聊天插件 JAR。包内 `minecraft-plugin/server-config/config.yml` 已预填与后台一致的插件 Key。它不包含 Git 历史或旧压缩包。请只通过私密渠道上传，不要公开分享或提交到 Git。下面以有 SSH 权限的 Linux 服务器为例。
 
 ## 1. 上传并安装
 
@@ -11,11 +11,11 @@ node -v
 npm -v
 ```
 
-把 `mc-qq-bridge-full-private-8.8.1.zip` 上传到服务器的用户目录，然后执行：
+把 `mc-qq-bridge-full-private-8.8.2.zip` 上传到服务器的用户目录，然后执行：
 
 ```sh
 mkdir -p "$HOME/mc-qq-bridge"
-unzip mc-qq-bridge-full-private-8.8.1.zip -d "$HOME/mc-qq-bridge"
+unzip mc-qq-bridge-full-private-8.8.2.zip -d "$HOME/mc-qq-bridge"
 cd "$HOME/mc-qq-bridge"
 npm ci --omit=dev
 npm test
@@ -121,6 +121,6 @@ QQ 官方 Bot 可配置英文命令及中文别名，包含 /绑定、/解绑、
 
 8.8.0 的后台使用通用模块中心。新模块按 `MODULE-SPEC.md` 制作 `.mcqqmodule`；旧 `.szydmodule` 继续兼容。新功能使用新的模块 ID，同一模块 ID 仅接受更高版本升级。v2 模块拥有完整宿主接口权限，只安装可信模块。已安装模块保存在 `data/modules`，部署和备份时应与其他 `data` 文件一起保留。
 
-## 8.8.1 通用模块与每日签到
+## 8.8.2 通用模块与每日签到
 
 先更新服务端，再登录后台的模块中心上传 `daily-checkin-money-1.2.0.mcqqmodule`。已有 1.0.0 或 1.1.0 可直接升级同一模块 ID，签到记录、设置和开关会保留。`/qd add 玩家名` 无需先查询，发放前仍核对 QQ 登记与 AQQBot 玩家归属。模块页可独立开关、配置奖励范围与经济命令模板。插件 JAR 仍为 1.1.3。上传之前确认经济插件支持模板中的 RCON 命令。
