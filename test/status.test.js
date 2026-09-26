@@ -81,3 +81,30 @@ test('/status 每次请求重新读取版本和最新心跳', async () => {
     assert.match(second, /插件连接：正常/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('插件短暂重载不会连续播报关闭和开启，持续停止才播报关闭', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-status-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', serverStatusNotifyEnabled: true };
+    const bridge = new Bridge(store, { pluginStopGraceMs: 20 });
+    const sent = [];
+    bridge.bot = { sendText: async (_target, content) => sent.push(content) };
+    bridge.status = '已连接';
+
+    bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-start', kind: 'start' }] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(sent, ['服务器已开启']);
+
+    bridge.lastServerNotice.at -= 120_000;
+    bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-stop', kind: 'stop' }] });
+    await new Promise(resolve => setImmediate(resolve));
+    bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run67890-start', kind: 'start' }] });
+    await new Promise(resolve => setTimeout(resolve, 35));
+    assert.deepEqual(sent, ['服务器已开启']);
+
+    bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run67890-stop', kind: 'stop' }] });
+    await new Promise(resolve => setTimeout(resolve, 35));
+    assert.deepEqual(sent, ['服务器已开启', '服务器已关闭']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
