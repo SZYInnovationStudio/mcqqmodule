@@ -13,7 +13,7 @@ import { PluginChatExchange, PluginConnectionState } from './plugin-chat.js';
 import { unbindConfirmed, bindRejected, safePlayer, queryPlayerOwner, queryAqqbot } from './aqqbot.js';
 
 const CODE_TTL = 5 * 60 * 1000;
-const PLUGIN_STOP_GRACE_MS = 15_000;
+const PLUGIN_OFFLINE_CONFIRM_MS = 90_000;
 const readBotVersion = () => JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const BEIJING_TIME = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -58,7 +58,7 @@ export class Bridge {
     this.pluginVersion = '未上报';
     this.pluginConnectionTimer = null;
     this.pluginStopTimer = null;
-    this.pluginStopGraceMs = deps.pluginStopGraceMs ?? PLUGIN_STOP_GRACE_MS;
+    this.pluginOfflineConfirmMs = deps.pluginOfflineConfirmMs ?? PLUGIN_OFFLINE_CONFIRM_MS;
     this.pendingServerStatus = null;
     this.aqqbotDatabase = { available: false, reason: '尚未收到插件快照', rows: [], capturedAt: null, receivedAt: null };
     this.serverLogs = [];
@@ -71,11 +71,7 @@ export class Bridge {
   start() {
     this.stopped = false;
     this.connect();
-    this.pluginConnectionTimer = setInterval(() => {
-      if (this.pluginConnection.check() === 'offline') {
-        void this.sendMcServerStatusToQq('offline').catch(error => this.store.audit('mc-server-status-error', error.message));
-      }
-    }, 5000);
+    this.pluginConnectionTimer = setInterval(() => this.checkPluginConnection(), 5000);
     this.pluginConnectionTimer.unref?.();
   }
 
@@ -104,8 +100,12 @@ export class Bridge {
     this.observeServerLogs(input?.serverLogs);
     this.observePluginVersion(input?.pluginVersion);
     const explicitStop = input.sent.some(item => item?.kind === 'stop');
-    if (this.pluginConnection.observe() === 'online' && !explicitStop) {
-      void this.sendMcServerStatusToQq('online').catch(error => this.store.audit('mc-server-status-error', error.message));
+    this.pluginConnection.observe();
+    if (!explicitStop) {
+      this.cancelPluginOffline();
+      if (this.lastServerNotice.status !== 'online') {
+        void this.sendMcServerStatusToQq('online').catch(error => this.store.audit('mc-server-status-error', error.message));
+      }
     }
     return {
       ...response,
@@ -235,18 +235,29 @@ export class Bridge {
 
   async sendMcLifecycleToQq(event) {
     if (event.kind === 'start') {
-      if (this.pluginStopTimer) clearTimeout(this.pluginStopTimer);
-      this.pluginStopTimer = null;
-      if (this.lastServerNotice.status !== 'online') await this.sendMcServerStatusToQq('online');
+      this.cancelPluginOffline();
       return;
     }
+    this.schedulePluginOffline(this.pluginConnection.lastSeen);
+  }
+
+  cancelPluginOffline() {
     if (this.pluginStopTimer) clearTimeout(this.pluginStopTimer);
-    const stoppedAt = this.pluginConnection.lastSeen;
+    this.pluginStopTimer = null;
+  }
+
+  checkPluginConnection(now = Date.now()) {
+    if (this.pluginConnection.check(now) === 'offline') this.schedulePluginOffline(this.pluginConnection.lastSeen);
+  }
+
+  schedulePluginOffline(lastSeen) {
+    if (this.pluginStopTimer) return;
+    const remaining = Math.max(0, lastSeen + this.pluginOfflineConfirmMs - Date.now());
     this.pluginStopTimer = setTimeout(() => {
       this.pluginStopTimer = null;
-      if (this.stopped || this.pluginConnection.lastSeen > stoppedAt) return;
+      if (this.stopped || this.pluginConnection.lastSeen > lastSeen) return;
       void this.sendMcServerStatusToQq('offline').catch(error => this.store.audit('mc-server-status-error', error.message));
-    }, this.pluginStopGraceMs);
+    }, remaining);
     this.pluginStopTimer.unref?.();
   }
 
