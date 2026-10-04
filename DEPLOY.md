@@ -132,11 +132,30 @@ QQ 官方 Bot 可配置英文命令及中文别名，包含 /绑定、/解绑、
 - `<DOCKERHUB_USERNAME>/mc-qq-bridge:<版本号>`
 - `<DOCKERHUB_USERNAME>/mc-qq-bridge:latest`
 
-工作流只读仓库、不做任何提交，所以不需要额外配置 PAT。发布新版本时，先把 `package.json` 的 `version` 改成新版本号再推送，镜像就会用新的 tag。版本号第三段按「到 9 进位」维护，`1.0.9` 的下一个是 `1.1.0` 而不是 `1.0.10`。
+工作流只读仓库、不做任何提交，所以不需要额外配置 PAT。
 
 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 配置：
 
 - `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`：Docker Hub 用户名与 Access Token。
+
+### 发布新版本
+
+镜像 tag 直接取自仓库里 `package.json` 的 `version` 字段。工作流不会自增版本号，发版前需要手动改这个字段，再 push 到 `main`：
+
+```sh
+# 1. 改版本号：下面这条会同时更新 package.json 与 package-lock.json，但不提交、不打 tag
+#    版本号第三段按「到 9 进位」维护：1.0.9 的下一个是 1.1.0，不是 1.0.10
+npm version 8.8.3 --no-git-tag-version
+
+# 2. 提交并推送，推送后工作流自动触发
+git add package.json package-lock.json
+git commit -m "chore: 版本号更新至 8.8.3"
+git push origin main
+```
+
+推送成功后，Actions 会自动构建 amd64 与 arm64 双架构镜像，产出两个 tag：`:8.8.3`（本次版本）和 `:latest`（始终指向最近一次成功构建）。构建进度可在仓库的 **Actions** 页查看；arm64 通过 QEMU 模拟构建，耗时通常比 amd64 长。
+
+如果只是想重新构建当前版本（比如改了 `Dockerfile`），直接 push 即可，不必改版本号；也可以用 **Actions → Build and Push Docker Image → Run workflow** 手动触发。
 
 后台只监听 `127.0.0.1:2556`，所以容器必须用 host 网络运行，仍按第 3 节用 SSH 隧道访问：
 
