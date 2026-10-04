@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+data
+test
+coverage
+dist
+deploy
+minecraft-plugin
+.env
+*.log

@@ -124,3 +124,27 @@ QQ 官方 Bot 可配置英文命令及中文别名，包含 /绑定、/解绑、
 ## 8.8.2 通用模块与每日签到
 
 先更新服务端，再登录后台的模块中心上传 `daily-checkin-money-1.2.0.mcqqmodule`。已有 1.0.0 或 1.1.0 可直接升级同一模块 ID，签到记录、设置和开关会保留。`/qd add 玩家名` 无需先查询，发放前仍核对 QQ 登记与 AQQBot 玩家归属。模块页可独立开关、配置奖励范围与经济命令模板。插件 JAR 仍为 1.1.3。上传之前确认经济插件支持模板中的 RCON 命令。
+
+## Docker 镜像（GitHub Actions 自动构建）
+
+仓库已包含 `Dockerfile` 与 `.github/workflows/docker-publish.yml`。每次 push 到 `main`（或手动触发）时，该工作流读取 `package.json` 里的版本号，构建 amd64 与 arm64 双架构镜像并推送到 Docker Hub：
+
+- `<DOCKERHUB_USERNAME>/mc-qq-bridge:<版本号>`
+- `<DOCKERHUB_USERNAME>/mc-qq-bridge:latest`
+
+工作流只读仓库、不做任何提交，所以不需要额外配置 PAT。发布新版本时，先把 `package.json` 的 `version` 改成新版本号再推送，镜像就会用新的 tag。版本号第三段按「到 9 进位」维护，`1.0.9` 的下一个是 `1.1.0` 而不是 `1.0.10`。
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions** 配置：
+
+- `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`：Docker Hub 用户名与 Access Token。
+
+后台只监听 `127.0.0.1:2556`，所以容器必须用 host 网络运行，仍按第 3 节用 SSH 隧道访问：
+
+```sh
+docker run -d --name mc-qq-bridge --network host \
+  -v "$HOME/mc-qq-bridge/data:/app/data" \
+  --restart unless-stopped \
+  <DOCKERHUB_USERNAME>/mc-qq-bridge:latest
+```
+
+`data/` 必须挂载到宿主机持久化，否则重启后配置与 `master.key` 会丢失。
