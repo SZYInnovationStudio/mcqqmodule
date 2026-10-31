@@ -38,6 +38,24 @@ test('【硬约束】OneBotLink 的发送入口会直接抛错而不是静默发
   link.stop();
 });
 
+test('【正向连接】server.js 必须给 OneBotLink 传入 WebSocket 实现', () => {
+  const serverSource = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
+  // 没有 WebSocketImpl 时，正向连接会静默降级成「缺少 WebSocket 实现」而连不上
+  assert.match(
+    serverSource,
+    /new OneBotLink\(\{[\s\S]*?WebSocketImpl:\s*WebSocket/,
+    'server.js 创建 OneBotLink 时必须传入 WebSocketImpl，否则正向连接不可用'
+  );
+  assert.match(serverSource, /import\s*\{\s*WebSocketServer,\s*WebSocket\s*\}\s*from\s*'ws'/, '需要同时导入 WebSocket 与 WebSocketServer');
+});
+
+test('【正向连接】缺少 WebSocket 实现时会明确报状态而不是静默失败', () => {
+  const link = new OneBotLink({ enabled: true, forwardUrl: 'ws://127.0.0.1:3001', WebSocketImpl: null });
+  link.start();
+  assert.equal(link.status, '缺少 WebSocket 实现');
+  link.stop();
+});
+
 test('【硬约束】bridge 里的群发言只经过官方 Bot', () => {
   const bridgeSource = readFileSync(new URL('../src/bridge.js', import.meta.url), 'utf8');
   // 所有发送都必须落在 this.bot 上

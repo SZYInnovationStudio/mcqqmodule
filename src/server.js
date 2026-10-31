@@ -14,7 +14,7 @@ import { queryAqqbot, safePlayer, safeQq } from './aqqbot.js';
 import { bindAqqbotPlayer, clearAqqbotPlayer, clearAllAqqbot, clearSelectedAqqbot, moveAqqbotPlayer, moveSelectedAqqbot, searchAqqbotAdmin } from './aqqbot-admin.js';
 import { ModuleManager } from './module-manager.js';
 import { OneBotLink } from './onebot.js';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.MCQQ_PORT || 2556);
@@ -82,6 +82,8 @@ const onebotLink = new OneBotLink({
   enabled: store.config.onebotEnabled === true,
   token: store.config.onebotToken ?? '',
   forwardUrl: store.config.onebotUrl ?? '',
+  // 正向连接（平台主动连外挂 Bot）需要真实的 WebSocket 实现
+  WebSocketImpl: WebSocket,
   log: message => { try { store.audit('onebot-error', message.slice(0, 300)); } catch {} }
 });
 const bridge = new Bridge(store, { isQqClearing: qq => clearingQq.has(qq), modules, onebot: onebotLink });
