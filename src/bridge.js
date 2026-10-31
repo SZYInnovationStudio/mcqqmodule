@@ -5,7 +5,7 @@ import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
 import { parseOnlineList } from './chat-relay.js';
 import { makeQqComponents, parseNameMap } from './qq-chat.js';
-import { formatMcToQq } from './mc-chat-format.js';
+import { formatMcToQq, stripMentions } from './mc-chat-format.js';
 import { normalizeCommand } from './commands.js';
 import { resolveQqToMcTemplate, DEFAULT_MC_TO_QQ_TEMPLATE, DEFAULT_PRESENCE_JOIN_TEMPLATE, DEFAULT_PRESENCE_QUIT_TEMPLATE, DEFAULT_SERVER_ONLINE_TEMPLATE, DEFAULT_SERVER_OFFLINE_TEMPLATE } from './config.js';
 import { formatMessageTemplate } from './message-templates.js';
@@ -258,11 +258,15 @@ export class Bridge {
 
   /**
    * 判断这条消息是否已在时间窗内转发过；用于官方 Bot 与 OneBot 去重。
-   * OneBot 关闭时不参与判断，返回 false，保持旧版「每条都转发」的行为。
+   *
+   * 注意这里的判据必须同时满足「同群 + 同人 + 同内容 + 同消息 ID」，
+   * 否则用户连续发两次同样的「哈哈哈」会被误杀，表现为「游戏里偶尔不同步」。
    */
-  isDuplicateRelay(groupId, userId, text) {
+  isDuplicateRelay(groupId, userId, text, messageId = '') {
     if (!this.isOneBotActive()) return false;
-    const key = this.fingerprint(groupId, userId, text);
+    const key = messageId
+      ? `${this.fingerprint(groupId, userId, text)}|mid:${messageId}`
+      : this.fingerprint(groupId, userId, text);
     const seen = this.relayFingerprints.get(key);
     if (seen && Date.now() - seen < this.relayDedupWindowMs) return true;
     this.relayFingerprints.set(key, Date.now());
@@ -456,8 +460,24 @@ export class Bridge {
 
   async sendMcChatToQq(chat) {
     if (this.stopped || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
-    const content = formatMcToQq(this.store.config.mcToQqTemplate || DEFAULT_MC_TO_QQ_TEMPLATE, chat);
+    // 查出这个玩家在 AQQBot 里绑定的 QQ 号，让群里能看到是谁
+    const qq = this.qqForPlayer(chat?.player);
+    const content = formatMcToQq(this.store.config.mcToQqTemplate || DEFAULT_MC_TO_QQ_TEMPLATE, { ...chat, qq });
     await this.sendToAllowedGroups(content, 'mc-to-qq-error');
+  }
+
+  /**
+   * 查玩家绑定的 QQ 号。
+   * 优先用最近一次 AQQBot 快照（插件同步过来的），比实时 RCON 查询快得多，
+   * 也避免每次玩家说话都打一次 RCON。
+   */
+  qqForPlayer(player) {
+    const name = String(player ?? '').trim();
+    if (!name) return '';
+    for (const row of this.aqqbotDatabase.rows ?? []) {
+      if (Array.isArray(row.players) && row.players.includes(name)) return row.qq;
+    }
+    return '';
   }
 
   async sendMcPresenceToQq(event) {
@@ -539,7 +559,8 @@ export class Bridge {
       this.store.audit('chat-sender-discovered', `群 ${group}，成员 OpenID ${openid}，官方 Bot 昵称：${String(event.senderName ?? '未知').slice(0, 48)}`);
     }
     const originalMessage = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
-    const message = normalizeCommand(originalMessage);
+    // 清掉消息正文里残留的 @ 标记，否则到 MC 里会变成一串看不懂的 OpenID
+    const message = normalizeCommand(stripMentions(originalMessage));
     const module = this.modules?.commandFor(message) ?? null;
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
@@ -569,8 +590,8 @@ export class Bridge {
           || this.store.state.users[openid]?.qq
           || '群友';
         const groupName = groupMap.get(group) || this.realGroupNameFor(group) || 'QQ群';
-        // 双源去重：OneBot 若已转发过同一条消息，这里就不要重复刷屏
-        if (learnedRealQQ && this.isDuplicateRelay(group, learnedRealQQ, message)) {
+        // 双源去重：带上 messageId，避免「连续两次相同内容」被误杀
+        if (learnedRealQQ && this.isDuplicateRelay(group, learnedRealQQ, message, event.messageId ?? '')) {
           this.store.audit('qq-to-mc-dedup', `群 ${group}：同一条消息已由监听 Bot 转发，跳过官方 Bot 副本`);
           return;
         }

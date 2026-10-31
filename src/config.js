@@ -3,7 +3,11 @@ import { parseNameMap, validateQqTemplate } from './qq-chat.js';
 export const DEFAULT_QQ_TO_MC_TEMPLATE = '&a[${groupName}]&r ${userName}：${message}';
 const OLD_QQ_TO_MC_TEMPLATE = '&a[QQ群]&r ${userName}: ${message}';
 export const resolveQqToMcTemplate = value => !value || value === OLD_QQ_TO_MC_TEMPLATE ? DEFAULT_QQ_TO_MC_TEMPLATE : value;
-export const DEFAULT_MC_TO_QQ_TEMPLATE = '[服务器] ${player}: ${message}';
+// 默认带上 QQ 号，让群友能对上「游戏里这个人是谁」
+export const DEFAULT_MC_TO_QQ_TEMPLATE = '[服务器] ${player}（QQ ${qq}）: ${message}';
+// 旧默认模板：升级时自动迁移到新默认，用户自定义的不动
+const OLD_MC_TO_QQ_TEMPLATE = '[服务器] ${player}: ${message}';
+export const resolveMcToQqTemplate = value => !value || value === OLD_MC_TO_QQ_TEMPLATE ? DEFAULT_MC_TO_QQ_TEMPLATE : value;
 export const DEFAULT_PRESENCE_JOIN_TEMPLATE = '${player} 进入了服务器';
 export const DEFAULT_PRESENCE_QUIT_TEMPLATE = '${player} 离开了服务器';
 export const DEFAULT_SERVER_ONLINE_TEMPLATE = '服务器已开启';
@@ -42,7 +46,7 @@ export function validateConfig(input, current = {}) {
   }
   if (next.onebotToken && !/^[A-Za-z0-9_-]{8,200}$/.test(next.onebotToken)) throw new Error('OneBot Token 至少 8 位，仅可用字母、数字、下划线和连字符');
   next.qqToMcTemplate = resolveQqToMcTemplate(next.qqToMcTemplate);
-  next.mcToQqTemplate ||= DEFAULT_MC_TO_QQ_TEMPLATE;
+  next.mcToQqTemplate = resolveMcToQqTemplate(next.mcToQqTemplate || DEFAULT_MC_TO_QQ_TEMPLATE);
   next.presenceJoinTemplate ||= DEFAULT_PRESENCE_JOIN_TEMPLATE;
   next.presenceQuitTemplate ||= DEFAULT_PRESENCE_QUIT_TEMPLATE;
   next.serverOnlineTemplate ||= DEFAULT_SERVER_ONLINE_TEMPLATE;
@@ -51,6 +55,8 @@ export function validateConfig(input, current = {}) {
   parseNameMap(next.groupNames, '群名称映射');
   parseNameMap(next.memberNames, '成员显示名映射');
   if (next.mcToQqTemplate.length > 300 || /[\r\n\0]/.test(next.mcToQqTemplate) || !next.mcToQqTemplate.includes('${player}') || !next.mcToQqTemplate.includes('${message}')) throw new Error('MC → QQ 模板需包含 ${player} 和 ${message}，最多 300 字');
+  // 允许 MC → QQ 模板使用 ${qq} 显示玩家绑定的 QQ 号
+  if (/\$\{(?!player\}|message\}|qq\}|qqOrEmpty\})[^}]*\}/.test(next.mcToQqTemplate)) throw new Error('MC → QQ 模板存在不支持的占位符，可用 ${player}、${message}、${qq}');
   validatePlainTemplate(next.presenceJoinTemplate, '玩家进服模板', ['player', 'online'], ['player']);
   validatePlainTemplate(next.presenceQuitTemplate, '玩家退服模板', ['player', 'online'], ['player']);
   validatePlainTemplate(next.serverOnlineTemplate, '服务器开启模板', ['time']);

@@ -104,10 +104,31 @@ test('MC → QQ 只在开关开启且机器人就绪时推送到允许群', asyn
     bridge.status = '已连接';
     await bridge.sendMcChatToQq({ player: 'Alice', content: '你好' });
     assert.deepEqual(sent.map(item => item.target.targetId), ['GROUP_OPENID_123', 'GROUP_OPENID_456']);
-    assert.equal(sent[0].content, '[服务器] Alice: 你好');
+    // 默认模板带上 QQ 号；没有绑定数据时显示「未绑定」
+    assert.equal(sent[0].content, '[服务器] Alice（QQ 未绑定）: 你好');
     bridge.stopped = true;
     await bridge.sendMcChatToQq({ player: 'Alice', content: '不发送' });
     assert.equal(sent.length, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('MC → QQ 在有 AQQBot 绑定数据时显示真实 QQ 号', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    store.config = { allowedGroups: 'GROUP_OPENID_123', mcToQqEnabled: true };
+    const sent = [];
+    const bridge = new Bridge(store);
+    bridge.bot = { sendText: async (target, content) => sent.push({ target, content }) };
+    bridge.status = '已连接';
+    // 模拟插件同步过来的 AQQBot 快照
+    bridge.observeAqqbotSnapshot({
+      available: true,
+      capturedAt: Date.now(),
+      rows: [{ qq: '123456789', players: ['Alice'] }]
+    });
+    await bridge.sendMcChatToQq({ player: 'Alice', content: '你好' });
+    assert.equal(sent[0].content, '[服务器] Alice（QQ 123456789）: 你好');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -373,3 +373,25 @@ test('【优先监听】关闭 OneBot 时不使用监听源的名字', () => {
   assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '');
   assert.equal(bridge.displayNameFromOneBot('openid_user_1', '官方昵称'), '');
 });
+
+/* ---------------- 连续相同消息不能被误杀 ---------------- */
+
+test('【不误杀】同一个人连续发两次相同内容，两条都要转发', () => {
+  const { bridge } = makeBridge();
+  // 第一次
+  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '哈哈哈', 'msg-1'), false);
+  // 第二次内容相同但 messageId 不同，是合法的新消息
+  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '哈哈哈', 'msg-2'), false);
+});
+
+test('【不误杀】同一条消息（messageId 相同）才会被判重复', () => {
+  const { bridge } = makeBridge();
+  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容', 'msg-1'), false);
+  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容', 'msg-1'), true, '同一条消息应判重复');
+});
+
+test('【不误杀】没有 messageId 时退回按内容去重，仍能挡住双源重复', () => {
+  const { bridge } = makeBridge();
+  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容'), false);
+  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容'), true);
+});
