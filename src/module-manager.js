@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,7 +7,10 @@ import { pathToFileURL } from 'node:url';
 const FORMAT = 'bridge-module-v2';
 const LEGACY_FORMAT = 'szydmc-module-v1';
 const SUPPORTED_FORMATS = new Set([FORMAT, LEGACY_FORMAT]);
-const SERVER_VERSION = '8.8.2';
+// 从 package.json 读取，避免每次发版都要手改这里而漏掉，导致模块中心显示旧版本号
+const SERVER_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+).version;
 const MAX_FILES = 500;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;

@@ -23,6 +23,9 @@ function renderList(state) {
   $('module-count').textContent = String(state.modules.length);
   $('enabled-count').textContent = String(state.modules.filter(item => item.enabled).length);
   $('host-version').textContent = state.serverVersion;
+  // 标题栏版本号也跟随宿主版本，避免页面写死后与模块中心显示不一致
+  const badge = $('host-badge');
+  if (badge) badge.textContent = `${state.serverVersion} · 通用模块平台`;
   const root = $('module-list');
   root.replaceChildren();
   root.classList.toggle('empty', !state.modules.length);

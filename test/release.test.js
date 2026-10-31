@@ -115,3 +115,38 @@ test('OneBot 状态按钮使用独立 id，不冒充通用测试按钮', () => {
   assert.match(js, /\$\('onebot-status-button'\)/);
   assert.doesNotMatch(html, /data-test="onebot"/, 'data-test="onebot" 会去请求不存在的 /api/test/onebot');
 });
+
+test('模块中心显示的宿主版本取自 package.json，不写死', async () => {
+  // 之前 module-manager.js 里写死 SERVER_VERSION = '8.8.2'，
+  // 升到 8.9.x 后模块中心还显示旧版本，属于典型的发版遗漏。
+  const mm = read('src/module-manager.js');
+  assert.doesNotMatch(
+    mm,
+    /SERVER_VERSION\s*=\s*['"]\d+\.\d+\.\d+['"]/,
+    'SERVER_VERSION 不能写死版本号，应从 package.json 读取'
+  );
+  assert.match(mm, /package\.json/, 'SERVER_VERSION 应读取 package.json');
+});
+
+test('源码与页面里不得残留硬编码的当前版本号', () => {
+  const files = ['src/module-manager.js', 'src/bridge.js', 'src/server.js', 'public/modules.html', 'public/templates.html'];
+  const version = pkg.version;
+  for (const file of files) {
+    const content = read(file);
+    // 允许出现「历史升级说明」里的小版本，但不允许出现和当前版本相同的裸字符串
+    const hardcoded = new RegExp(`['"]${version.replace(/\./g, '\\.')}['"]`);
+    assert.doesNotMatch(
+      content,
+      hardcoded,
+      `${file} 里写死了当前版本号 ${version}，发版时容易漏改`
+    );
+  }
+});
+
+test('模块中心页面版本徽标由脚本动态填充', () => {
+  const html = read('public/modules.html');
+  const js = read('public/modules.js');
+  assert.match(html, /id="host-badge"/, '标题栏版本徽标应有可被脚本填充的 id');
+  assert.doesNotMatch(html, /eyebrow">\d+\.\d+\.\d+ ·/, '页面里不应写死版本号');
+  assert.match(js, /host-badge/);
+});
