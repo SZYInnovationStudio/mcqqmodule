@@ -267,3 +267,69 @@ test('【回退】关闭 OneBot 后自动登记与手填流程都回到旧版', 
   // 关闭时提示里不应出现监听 Bot 的引导语
   assert.doesNotMatch(reply, /监听 Bot 尚未识别/);
 });
+
+/* ---------------- 学习时机：命令也必须参与学习 ---------------- */
+
+test('【学习时机】命令消息同样参与学习，不会因为不是聊天而漏掉', async () => {
+  const { Bridge } = await import('../src/bridge.js');
+  const users = {};
+  const audits = [];
+  const sends = [];
+  const store = {
+    config: {
+      allowedGroups: 'group_openid_aaaa',
+      onebotEnabled: true,
+      onebotPreferRealQQ: true,
+      qqToMcEnabled: true
+    },
+    state: { users },
+    audit: (kind, detail) => audits.push({ kind, detail }),
+    qqOwner: (qq, except = '') => Object.entries(users).find(([id, u]) => id !== except && u.qq === qq)?.[0] ?? null,
+    register: (openid, qq, group, source) => { users[openid] = { qq, group, source }; },
+    recordPlayerCommand: () => {}
+  };
+  const bridge = new Bridge(store, {
+    onebot: new OneBotLink({ enabled: false }),
+    send: async (_e, reply) => sends.push(reply),
+    rcon: async () => ''
+  });
+
+  // OneBot 先看到用户发了 /qqbind
+  bridge.handleOneBotGroupMessage({
+    groupId: '987654321', userId: '123456789', text: '/qqbind',
+    displayName: '张三', nickname: '张三'
+  });
+
+  // 官方 Bot 随后也收到 /qqbind（命令，不是普通聊天）
+  await bridge.handleEvent({
+    kind: 'group',
+    groupOpenid: 'group_openid_aaaa',
+    senderId: 'openid_user_1',
+    senderName: '张三',
+    content: '/qqbind',
+    messageId: 'm-cmd-1',
+    replyTarget: { scope: 'group', targetId: 'group_openid_aaaa' }
+  });
+
+  // 关键：命令也要参与学习，否则第一次用命令的人永远学不到真实 QQ 号
+  assert.equal(bridge.realQQForOpenid('openid_user_1'), '123456789', '命令消息必须参与学习');
+  // 学到之后，同样的 /qqbind 应当直接自动登记
+  assert.equal(users.openid_user_1?.qq, '123456789', '学到后应自动登记');
+});
+
+test('【学习时机】/qqbind 不带参数且在已识别时直接自动登记', () => {
+  const { bridge, users } = makeBridge();
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '/qqbind' }));
+  bridge.learnFromOfficial('openid_user_1', 'group_openid_aaaa', '群名片甲', '/qqbind');
+  const reply = bridge.beginRegistration('openid_user_1', 'group_openid_aaaa', '/qqbind');
+  assert.match(reply, /自动识别/);
+  assert.equal(users.openid_user_1.qq, '123456789');
+});
+
+test('【学习时机】/qqbind 不带参数且未识别时给出可操作提示', () => {
+  const { bridge } = makeBridge();
+  const reply = bridge.beginRegistration('openid_user_1', 'group_openid_aaaa', '/qqbind');
+  // 启用 OneBot 时应提示先发言再试，而不是干巴巴的格式错误
+  assert.match(reply, /监听 Bot 还没识别到/);
+  assert.match(reply, /发一句话/);
+});

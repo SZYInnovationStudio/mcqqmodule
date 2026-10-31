@@ -23,6 +23,13 @@ const COMMAND_CATEGORY = {
   mcbind: 'MC 绑定', mcunbind: 'MC 解绑', mcunallbind: 'MC 解绑', mymc: '服务器查询', motd: '服务器查询', list: '服务器查询', tps: '性能查询', status: '连接查询'
 };
 const redactCode = value => String(value ?? '').replace(/BIND-[A-F0-9]{6}/gi, 'BIND-******');
+
+/**
+ * 把官方 Bot 收到的内容还原成「群友实际打的字」，用于和 OneBot 上报文本对齐。
+ * 命令也一样要能对上：用户发 /qqbind，OneBot 收到的也是 /qqbind，
+ * 不能因为它是命令就跳过学习，否则第一次用命令的人永远学不到真实 QQ 号。
+ */
+const normalCommandText = value => String(value ?? '').trim();
 const stripConsoleFormatting = value => String(value ?? '')
   .replace(/§x(?:§[0-9a-f]){6}/gi, '')
   .replace(/§[0-9a-fk-or]/gi, '')
@@ -514,14 +521,15 @@ export class Bridge {
       this.seen.set(key, Date.now());
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
     }
+    // 学习必须在分支之前：用户可能直接发 /qqbind 或别的命令，而不是普通聊天。
+    // 只在聊天分支里学，会导致「第一次用命令的人永远学不到真实 QQ 号」。
+    const learnedRealQQ = this.learnFromOfficial(openid, group, String(event.senderName ?? ''), normalCommandText(message));
     if (isChat && !module) {
       try {
         const userName = parseNameMap(this.store.config.memberNames, '成员显示名映射').get(openid) || event.senderName || this.store.state.users[openid]?.qq || '群友';
         const groupName = parseNameMap(this.store.config.groupNames, '群名称映射').get(group) || this.realGroupNameFor(group) || 'QQ群';
-        // 顺便学习真实 QQ 号：同一条消息 OneBot 也收到了，就能确定 OpenID 对应哪个 QQ
-        const realQQ = this.learnFromOfficial(openid, group, String(event.senderName ?? ''), message);
         // 双源去重：OneBot 若已转发过同一条消息，这里就不要重复刷屏
-        if (realQQ && this.isDuplicateRelay(group, realQQ, message)) {
+        if (learnedRealQQ && this.isDuplicateRelay(group, learnedRealQQ, message)) {
           this.store.audit('qq-to-mc-dedup', `群 ${group}：同一条消息已由监听 Bot 转发，跳过官方 Bot 副本`);
           return;
         }
@@ -669,7 +677,15 @@ export class Bridge {
     if (auto) {
       return `已通过监听 Bot 自动识别你的 QQ 号：${auto.qq}，登记完成。\n现在可以直接使用 /mcbind <玩家名>、/mymc、/motd、/list 等命令。`;
     }
+    // 允许 /qqbind 不带参数：先尝试自动识别，识别不到再提示正确格式
+    const bare = /^\/qqbind\s*$/i.test(message);
     const qq = message.match(/^\/qqbind\s+(\d{5,20})\s*$/i)?.[1];
+    if (bare) {
+      const hint = this.isOneBotActive()
+        ? '监听 Bot 还没识别到你的 QQ 号。\n请先在群里随便发一句话（不要是命令），然后再发 /qqbind；或者直接手填：/qqbind <你的QQ号>'
+        : '格式：/qqbind <你的QQ号>，例如 /qqbind 36000000';
+      return hint;
+    }
     if (!qq || !QQ_FORMAT.test(qq)) return '格式：/qqbind <你的QQ号>，例如 /qqbind 36000000';
     if (this.store.qqOwner(qq, openid)) return '这个 QQ 号已被登记，请联系管理员核对。';
     const pending = { group, qq, code: `BIND-${randomBytes(3).toString('hex').toUpperCase()}`, expires: Date.now() + CODE_TTL };
