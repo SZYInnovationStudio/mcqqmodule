@@ -79,3 +79,32 @@ test('插件版本号与 pom.xml 一致，公开目录里的 JAR 命名同步', 
     );
   }
 });
+
+test('设置页里每个 data-test 按钮都指向真实存在的测试接口', () => {
+  // 通用逻辑是 api(`test/${button.dataset.test}`)，指向不存在的接口就会静默失败
+  const html = read('public/settings.html');
+  const js = read('public/settings.js');
+  const serverSource = read('src/server.js');
+
+  const buttons = [...html.matchAll(/data-test="([a-zA-Z0-9_-]+)"/g)].map((m) => m[1]);
+  // 页面确实用了通用 data-test 逻辑
+  const usesGeneric = /api\(`test\/\$\{button\.dataset\.test\}`/.test(js);
+  if (usesGeneric) {
+    for (const name of buttons) {
+      assert.match(
+        serverSource,
+        new RegExp(`path === '/api/test/${name}'`),
+        `设置页的 data-test="${name}" 在 server.js 里没有对应接口`
+      );
+    }
+  }
+});
+
+test('OneBot 状态按钮使用独立 id，不冒充通用测试按钮', () => {
+  const html = read('public/settings.html');
+  const js = read('public/settings.js');
+  // 状态查询走 /api/status，不是 /api/test/onebot
+  assert.match(html, /id="onebot-status-button"/);
+  assert.match(js, /\$\('onebot-status-button'\)/);
+  assert.doesNotMatch(html, /data-test="onebot"/, 'data-test="onebot" 会去请求不存在的 /api/test/onebot');
+});

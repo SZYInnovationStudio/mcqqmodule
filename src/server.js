@@ -13,6 +13,8 @@ import { matchesPluginKey } from './plugin-chat.js';
 import { queryAqqbot, safePlayer, safeQq } from './aqqbot.js';
 import { bindAqqbotPlayer, clearAqqbotPlayer, clearAllAqqbot, clearSelectedAqqbot, moveAqqbotPlayer, moveSelectedAqqbot, searchAqqbotAdmin } from './aqqbot-admin.js';
 import { ModuleManager } from './module-manager.js';
+import { OneBotLink } from './onebot.js';
+import { WebSocketServer } from 'ws';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.MCQQ_PORT || 2556);
@@ -75,7 +77,14 @@ const modules = new ModuleManager(store.dir, {
 });
 await modules.loadInstalled();
 const clearingQq = new Set();
-const bridge = new Bridge(store, { isQqClearing: qq => clearingQq.has(qq), modules });
+// OneBot 监听 Bot：外挂框架通过 /api/onebot/ws 主动连入，或由平台主动连出去
+const onebotLink = new OneBotLink({
+  enabled: store.config.onebotEnabled === true,
+  token: store.config.onebotToken ?? '',
+  forwardUrl: store.config.onebotUrl ?? '',
+  log: message => { try { store.audit('onebot-error', message.slice(0, 300)); } catch {} }
+});
+const bridge = new Bridge(store, { isQqClearing: qq => clearingQq.has(qq), modules, onebot: onebotLink });
 bridge.start();
 const sessions = new Map();
 const attempts = new Map();
@@ -291,7 +300,7 @@ const server = http.createServer(async (req, res) => {
       connected: bridge.pluginExchange.lastSeen > Date.now() - 10000,
       lastSeen: bridge.pluginExchange.lastSeen ? new Date(bridge.pluginExchange.lastSeen).toISOString() : null
     });
-    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword), pluginConnected: bridge.pluginExchange.lastSeen > Date.now() - 10000, pluginVersion: bridge.pluginVersion });
+    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword), pluginConnected: bridge.pluginExchange.lastSeen > Date.now() - 10000, pluginVersion: bridge.pluginVersion, onebot: bridge.getOneBotStatus() });
     if (path === '/api/modules' && req.method === 'GET') return json(res, 200, modules.list());
     if (path === '/api/modules/install' && req.method === 'POST') {
       const installed = await modules.install(await body(req, 34 * 1024 * 1024), accounts.username);
@@ -500,5 +509,37 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, HOST, () => console.log(`管理后台：http://${HOST}:${PORT}`));
-process.on('SIGINT', () => { bridge.stop(); server.close(); });
-process.on('SIGTERM', () => { bridge.stop(); server.close(); });
+
+/* ---------------- OneBot 反向 WebSocket 入口 ---------------- */
+// 外挂框架（NapCat / Lagrange / LLOneBot 等）把上报地址指向 ws://127.0.0.1:2556/api/onebot/ws
+// 这个连接只用来「收」事件，平台不会通过它发送群消息。
+const onebotWss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  let requestUrl;
+  try { requestUrl = new URL(req.url, `http://${HOST}:${PORT}`); }
+  catch { socket.destroy(); return; }
+
+  if (requestUrl.pathname !== '/api/onebot/ws') { socket.destroy(); return; }
+  if (req.headers.host !== `${HOST}:${PORT}`) { socket.destroy(); return; }
+  if (store.config.onebotEnabled !== true) { socket.destroy(); return; }
+
+  const token = requestUrl.searchParams.get('access_token')
+    ?? requestUrl.searchParams.get('token')
+    ?? req.headers.authorization
+    ?? '';
+  if (!onebotLink.acceptsToken(token)) {
+    try { store.audit('onebot-auth', '拒绝了一个 OneBot 连接：Access Token 不匹配'); } catch {}
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+
+  onebotWss.handleUpgrade(req, socket, head, ws => {
+    try { store.audit('onebot-connect', '外挂监听 Bot 已连接'); } catch {}
+    onebotLink.accept(ws);
+  });
+});
+
+process.on('SIGINT', () => { bridge.stop(); onebotWss.close(); server.close(); });
+process.on('SIGTERM', () => { bridge.stop(); onebotWss.close(); server.close(); });

@@ -153,7 +153,7 @@ export class Storage {
     if (this.qqOwner(qq, openid)) throw new Error('QQ 号已被其他用户登记');
     if (Object.hasOwn(this.state.users, openid)) throw new Error('此 OpenID 已登记');
     if (typeof group !== 'string' || (group && !/^[A-Za-z0-9_-]{5,128}$/.test(group))) throw new Error('登记群 OpenID 格式无效');
-    if (source !== 'self-confirmed' && source !== 'admin-created') throw new Error('登记来源无效');
+    if (source !== 'self-confirmed' && source !== 'admin-created' && source !== 'admin-edited' && source !== 'onebot-auto') throw new Error('登记来源无效');
     this.state.users[openid] = { qq, group, registeredAt: new Date().toISOString(), source };
     this.saveState();
   }

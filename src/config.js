@@ -9,10 +9,10 @@ export const DEFAULT_PRESENCE_QUIT_TEMPLATE = '${player} 离开了服务器';
 export const DEFAULT_SERVER_ONLINE_TEMPLATE = '服务器已开启';
 export const DEFAULT_SERVER_OFFLINE_TEMPLATE = '服务器已关闭';
 
-const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'qqAppId', 'qqAppSecret', 'allowedGroups', 'qqToMcTemplate', 'mcToQqTemplate', 'presenceJoinTemplate', 'presenceQuitTemplate', 'serverOnlineTemplate', 'serverOfflineTemplate', 'groupNames', 'memberNames', 'pluginKey'];
-const secrets = ['rconPassword', 'qqAppSecret', 'pluginKey'];
+const keys = ['rconHost', 'rconPort', 'rconPassword', 'mcHost', 'mcPort', 'qqAppId', 'qqAppSecret', 'allowedGroups', 'qqToMcTemplate', 'mcToQqTemplate', 'presenceJoinTemplate', 'presenceQuitTemplate', 'serverOnlineTemplate', 'serverOfflineTemplate', 'groupNames', 'memberNames', 'pluginKey', 'onebotUrl', 'onebotToken'];
+const secrets = ['rconPassword', 'qqAppSecret', 'pluginKey', 'onebotToken'];
 const relayFlags = ['mcToQqEnabled', 'qqToMcEnabled'];
-const booleanFlags = [...relayFlags, 'presenceNotifyEnabled', 'serverStatusNotifyEnabled', 'serverLogEnabled', 'registrationDeleteUnbindEnabled'];
+const booleanFlags = [...relayFlags, 'presenceNotifyEnabled', 'serverStatusNotifyEnabled', 'serverLogEnabled', 'registrationDeleteUnbindEnabled', 'onebotEnabled', 'onebotPreferRealQQ'];
 
 function validatePlainTemplate(value, label, allowed, required = []) {
   if (!value || value.length > 300 || /[\r\n\0]/.test(value)) throw new Error(label + '需为一行且最多 300 字');
@@ -35,6 +35,12 @@ export function validateConfig(input, current = {}) {
   }
   next.allowedGroups = next.allowedGroups.split(/[\s,，]+/).filter(Boolean).join(',');
   if (next.allowedGroups && !/^[A-Za-z0-9_-]{5,128}(,[A-Za-z0-9_-]{5,128})*$/.test(next.allowedGroups)) throw new Error('群 OpenID 列表格式不合法');
+  // OneBot 监听 Bot 的正向 WebSocket 地址，空表示等待外挂 Bot 主动连入（反向）
+  if (next.onebotUrl) {
+    if (next.onebotUrl.length > 500) throw new Error('OneBot 地址过长');
+    if (!/^wss?:\/\/[^\s]{1,500}$/i.test(next.onebotUrl)) throw new Error('OneBot 地址需为 ws:// 或 wss:// 开头');
+  }
+  if (next.onebotToken && !/^[A-Za-z0-9_-]{8,200}$/.test(next.onebotToken)) throw new Error('OneBot Token 至少 8 位，仅可用字母、数字、下划线和连字符');
   next.qqToMcTemplate = resolveQqToMcTemplate(next.qqToMcTemplate);
   next.mcToQqTemplate ||= DEFAULT_MC_TO_QQ_TEMPLATE;
   next.presenceJoinTemplate ||= DEFAULT_PRESENCE_JOIN_TEMPLATE;
@@ -55,6 +61,8 @@ export function validateConfig(input, current = {}) {
     if (value !== true && value !== false) throw new Error('${flag} 开关格式无效');
     next[flag] = value;
   }
+  // 布尔标志归一化之后才判断，此时 next.onebotEnabled 一定是真正的布尔值
+  if (next.onebotEnabled === true && !next.onebotToken) throw new Error('启用 OneBot 监听前，请设置 Access Token（避免任何人都能接入）');
   if ((next.qqToMcEnabled || next.mcToQqEnabled || next.presenceNotifyEnabled || next.serverStatusNotifyEnabled) && (!next.qqAppId || !next.qqAppSecret || !next.allowedGroups)) throw new Error('开启 QQ 消息功能前，请填完整 QQ Bot 和允许群配置');
   if ((next.qqToMcEnabled || next.mcToQqEnabled) && !next.pluginKey) throw new Error('使用插件聊天转发前，请设置插件 Key');
   if ((next.presenceNotifyEnabled || next.serverStatusNotifyEnabled || next.serverLogEnabled) && !next.pluginKey) throw new Error('开启插件事件或日志前，请设置插件 Key');

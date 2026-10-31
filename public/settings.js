@@ -35,11 +35,36 @@ $('config-form').addEventListener('submit', async event => {
     const config = Object.fromEntries(new FormData(form));
     config.mcToQqEnabled = form.elements.mcToQqEnabled.checked;
     config.qqToMcEnabled = form.elements.qqToMcEnabled.checked;
+    config.onebotEnabled = form.elements.onebotEnabled.checked;
+    config.onebotPreferRealQQ = form.elements.onebotPreferRealQQ.checked;
     await api('config', { method: 'POST', body: JSON.stringify(config) });
     await loadConfig();
-    message('config-message', '信息已保存，聊天转发开关已生效。');
+    message('config-message', '信息已保存，聊天转发和监听 Bot 设置已生效。');
   } catch (error) { message('config-message', error.message, true); }
   finally { button.disabled = false; }
+});
+
+// 单独一个按钮查询监听 Bot 状态，不跟连接测试混在一起
+$('onebot-status-button')?.addEventListener('click', async () => {
+  $('onebot-output').textContent = '正在查询…';
+  try {
+    const status = await api('status');
+    const onebot = status.onebot ?? {};
+    $('onebot-output').textContent = [
+      `状态：${onebot.status ?? '未知'}`,
+      `接入方式：${onebot.mode === 'forward' ? '正向（平台主动连接）' : onebot.mode === 'reverse' ? '反向（外挂 Bot 连入）' : '—'}`,
+      `监听 QQ：${onebot.selfId || '—'}`,
+      `累计收到事件：${onebot.eventCount ?? 0}`,
+      `最近事件：${onebot.lastEventAt ?? '—'}`,
+      '',
+      '最近上报：',
+      ...(onebot.recentEvents?.length
+        ? onebot.recentEvents.slice(0, 10).map(item => `  ${item.at}  ${item.kind ?? ''}  ${item.groupId ? `群${item.groupId}` : ''} ${item.userId ? `QQ${item.userId}` : ''} ${(item.text ?? item.name ?? '').slice(0, 40)}`)
+        : ['  （尚无事件）']),
+      '',
+      '提醒：监听 Bot 只收消息，群里的所有发言由官方 Bot 发出。'
+    ].join('\n');
+  } catch (error) { $('onebot-output').textContent = `查询失败：${error.message}`; }
 });
 
 $('account-form').addEventListener('submit', async event => {

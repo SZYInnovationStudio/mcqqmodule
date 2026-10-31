@@ -11,6 +11,7 @@ import { resolveQqToMcTemplate, DEFAULT_MC_TO_QQ_TEMPLATE, DEFAULT_PRESENCE_JOIN
 import { formatMessageTemplate } from './message-templates.js';
 import { PluginChatExchange, PluginConnectionState } from './plugin-chat.js';
 import { unbindConfirmed, bindRejected, safePlayer, queryPlayerOwner, queryAqqbot } from './aqqbot.js';
+import { OneBotLink } from './onebot.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const PLUGIN_OFFLINE_CONFIRM_MS = 90_000;
@@ -66,17 +67,208 @@ export class Bridge {
     this.serverLogBatches = new Set();
     this.lastServerNotice = { status: null, at: 0 };
     this.stopped = false;
+
+    // ---- OneBot 监听 Bot（只读）：补齐真实 QQ 号、群名、成员变动 ----
+    this.onebot = deps.onebot ?? null;
+    /** 真实 QQ 号 → 最近活跃时间；用于把官方 Bot 的 OpenID 关联到真实 QQ */
+    this.realQQByGroupUser = new Map();
+    /** 群号 → 群名称（来自 OneBot 的群名上报或群名称事件） */
+    this.groupNamesByRealId = new Map();
+    /** 内容指纹 → 时间，用于官方 Bot 与 OneBot 双源去重 */
+    this.relayFingerprints = new Map();
+    /** 双源去重时间窗 */
+    this.relayDedupWindowMs = deps.relayDedupWindowMs ?? 15_000;
+    /** OpenID → 真实 QQ 号（由 OneBot 群消息间接学习得到） */
+    this.openidToRealQQ = new Map();
+    /** 群 OpenID → 真实群号 */
+    this.openidGroupToReal = new Map();
+    /** 真实群号 → 群 OpenID */
+    this.realGroupToOpenid = new Map();
+    /** 最近的 OneBot 群消息，用于和官方 Bot 侧做内容匹配 */
+    this.recentOneBotMessages = [];
+    if (this.onebot) this.bindOneBotEvents();
+  }
+
+  /** 把 OneBot 的事件接到现有处理链上 */
+  bindOneBotEvents() {
+    this.onebot.on('group-message', message => {
+      try { this.handleOneBotGroupMessage(message); }
+      catch (error) { this.store.audit('onebot-error', error.message); }
+    });
+    this.onebot.on('meta', event => {
+      try { this.handleOneBotMeta(event); }
+      catch (error) { this.store.audit('onebot-error', error.message); }
+    });
+    this.onebot.on('status', status => this.store.audit('onebot-status', `OneBot 监听状态：${status}`));
+  }
+
+  /** 记录 OneBot 拿到的真实 QQ 号，供绑定时自动取用 */
+  handleOneBotGroupMessage(message) {
+    if (!message.groupId || !message.userId) return;
+    this.rememberRealQQ(message.groupId, message.userId);
+    if (message.text) {
+      const key = this.fingerprint(message.groupId, message.userId, message.text);
+      this.relayFingerprints.set(key, Date.now());
+      // 供官方 Bot 侧做「同内容+时间窗」关联，学习 OpenID ↔ 真实 QQ
+      this.rememberOneBotMessage(message);
+    }
+    this.pruneFingerprints();
+  }
+
+  /**
+   * 暂存 OneBot 收到的消息，等待官方 Bot 侧匹配。
+   * 两个 Bot 看到的群标识不同（OpenID vs 真实群号），无法直接对应，
+   * 因此只能用「内容 + 发送者显示名 + 时间窗」做保守关联。
+   */
+  rememberOneBotMessage(message) {
+    this.recentOneBotMessages.push({
+      text: message.text,
+      displayName: message.displayName,
+      nickname: message.nickname,
+      userId: message.userId,
+      groupId: message.groupId,
+      at: Date.now()
+    });
+    if (this.recentOneBotMessages.length > 300) this.recentOneBotMessages.shift();
+  }
+
+  /**
+   * OneBot 是否真正参与工作。
+   * 关闭时必须完全退回旧版行为：不学习、不去重、不用 OneBot 群名，
+   * 所有消息只走官方 Bot 的原有路径。
+   */
+  isOneBotActive() {
+    return this.store.config.onebotEnabled === true && Boolean(this.onebot);
+  }
+
+  /**
+   * 官方 Bot 收到一条群聊后，尝试找到对应的 OneBot 消息。
+   * 同时学习两件事：
+   *   1. OpenID → 真实 QQ 号
+   *   2. 群 OpenID → 真实群号
+   * 只有「内容相同、时间窗内、候选唯一」时才学习，避免张冠李戴。
+   */
+  learnFromOfficial(openid, groupOpenid, senderName, text) {
+    if (!this.isOneBotActive()) return null;
+    const cutoff = Date.now() - this.relayDedupWindowMs;
+    this.recentOneBotMessages = this.recentOneBotMessages.filter(item => item.at >= cutoff);
+    if (!text) return null;
+    const candidates = this.recentOneBotMessages.filter(item =>
+      item.text === text && item.at >= cutoff && (!senderName || !item.displayName || item.displayName === senderName || item.nickname === senderName));
+    if (candidates.length !== 1) return null;
+
+    const hit = candidates[0];
+    // 群 OpenID → 真实群号
+    if (groupOpenid && hit.groupId && this.openidGroupToReal.get(groupOpenid) !== hit.groupId) {
+      this.openidGroupToReal.set(groupOpenid, hit.groupId);
+      this.realGroupToOpenid.set(hit.groupId, groupOpenid);
+      this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 关联到真实群号 ${hit.groupId}`);
+    }
+    // OpenID → 真实 QQ
+    if (this.openidToRealQQ.get(openid) !== hit.userId) {
+      this.openidToRealQQ.set(openid, hit.userId);
+      this.store.audit('onebot-link', `OpenID ${openid} 关联到真实 QQ ${hit.userId}（依据群消息内容与时间窗）`);
+    }
+    return hit.userId;
+  }
+
+  /** 取某个 OpenID 已知的真实 QQ 号（可能为空） */
+  realQQForOpenid(openid) {
+    return this.openidToRealQQ.get(openid) ?? null;
+  }
+
+  /** 取某个群 OpenID 对应的真实群号（可能为空） */
+  realGroupIdFor(groupOpenid) {
+    return this.openidGroupToReal.get(groupOpenid) ?? null;
+  }
+
+  /** 取某个真实群号对应的群 OpenID（可能为空） */
+  groupOpenidFor(realGroupId) {
+    return this.realGroupToOpenid.get(realGroupId) ?? null;
+  }
+
+  handleOneBotMeta(event) {
+    if (event.kind === 'group-name' && event.groupId && event.name) {
+      this.groupNamesByRealId.set(event.groupId, event.name);
+      this.store.audit('onebot-group-name', `群 ${event.groupId} 名称更新为「${event.name}」`);
+      return;
+    }
+    if ((event.kind === 'member-join' || event.kind === 'member-leave') && event.groupId && event.userId) {
+      const label = event.kind === 'member-join' ? '加入' : '离开';
+      this.store.audit('onebot-member', `QQ ${event.userId} ${label}群 ${event.groupId}`);
+    }
+  }
+
+  rememberRealQQ(groupId, userId) {
+    this.realQQByGroupUser.set(`${groupId}:${userId}`, Date.now());
+    // 只保留最近 5000 条，防止长期运行内存增长
+    if (this.realQQByGroupUser.size > 5000) {
+      const oldest = [...this.realQQByGroupUser.entries()].sort((a, b) => a[1] - b[1])[0];
+      if (oldest) this.realQQByGroupUser.delete(oldest[0]);
+    }
+  }
+
+  /** 取某个群成员最近上报的真实 QQ 号 */
+  realQQFor(groupId, userId) {
+    return this.realQQByGroupUser.has(`${groupId}:${userId}`) ? userId : null;
+  }
+
+  /** 双源去重指纹：同一群、同一人、同一内容在一个时间窗内只转发一次 */
+  fingerprint(groupId, userId, text) {
+    return `${groupId}|${userId}|${String(text ?? '').toLowerCase()}`;
+  }
+
+  pruneFingerprints() {
+    const cutoff = Date.now() - this.relayDedupWindowMs;
+    for (const [key, at] of this.relayFingerprints) if (at < cutoff) this.relayFingerprints.delete(key);
+  }
+
+  /**
+   * 判断这条消息是否已在时间窗内转发过；用于官方 Bot 与 OneBot 去重。
+   * OneBot 关闭时不参与判断，返回 false，保持旧版「每条都转发」的行为。
+   */
+  isDuplicateRelay(groupId, userId, text) {
+    if (!this.isOneBotActive()) return false;
+    const key = this.fingerprint(groupId, userId, text);
+    const seen = this.relayFingerprints.get(key);
+    if (seen && Date.now() - seen < this.relayDedupWindowMs) return true;
+    this.relayFingerprints.set(key, Date.now());
+    this.pruneFingerprints();
+    return false;
+  }
+
+  getOneBotStatus() {
+    return this.onebot ? this.onebot.getStatus() : { enabled: false, status: '未配置', connected: false, recentEvents: [] };
+  }
+
+  getGroupNameMap() {
+    return Object.fromEntries(this.groupNamesByRealId);
+  }
+
+  /**
+   * 官方 Bot 只给群 OpenID，OneBot 给的是真实群号。
+   * 关闭 OneBot 时完全退回旧版：只用管理员配置的「群名称映射」。
+   */
+  realGroupNameFor(groupOpenid) {
+    const configured = parseNameMap(this.store.config.groupNames, '群名称映射').get(groupOpenid);
+    if (configured) return configured;
+    if (!this.isOneBotActive()) return '';
+    // 只有一个群有名称时可以直接用，多个群就无法安全推断
+    const names = [...new Set(this.groupNamesByRealId.values())];
+    return names.length === 1 ? names[0] : '';
   }
 
   start() {
     this.stopped = false;
     this.connect();
+    this.onebot?.start();
     this.pluginConnectionTimer = setInterval(() => this.checkPluginConnection(), 5000);
     this.pluginConnectionTimer.unref?.();
   }
 
   stop() {
     this.stopped = true;
+    this.onebot?.stop();
     if (this.pluginConnectionTimer) clearInterval(this.pluginConnectionTimer);
     this.pluginConnectionTimer = null;
     if (this.pluginStopTimer) clearTimeout(this.pluginStopTimer);
@@ -91,6 +283,11 @@ export class Bridge {
     this.stop();
     this.stopped = false;
     this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat), event => this.sendMcPresenceToQq(event), event => this.sendMcLifecycleToQq(event));
+    this.onebot?.restart({
+      enabled: this.store.config.onebotEnabled === true,
+      token: this.store.config.onebotToken ?? '',
+      forwardUrl: this.store.config.onebotUrl ?? ''
+    });
     this.start();
   }
 
@@ -320,7 +517,14 @@ export class Bridge {
     if (isChat && !module) {
       try {
         const userName = parseNameMap(this.store.config.memberNames, '成员显示名映射').get(openid) || event.senderName || this.store.state.users[openid]?.qq || '群友';
-        const groupName = parseNameMap(this.store.config.groupNames, '群名称映射').get(group) || 'QQ群';
+        const groupName = parseNameMap(this.store.config.groupNames, '群名称映射').get(group) || this.realGroupNameFor(group) || 'QQ群';
+        // 顺便学习真实 QQ 号：同一条消息 OneBot 也收到了，就能确定 OpenID 对应哪个 QQ
+        const realQQ = this.learnFromOfficial(openid, group, String(event.senderName ?? ''), message);
+        // 双源去重：OneBot 若已转发过同一条消息，这里就不要重复刷屏
+        if (realQQ && this.isDuplicateRelay(group, realQQ, message)) {
+          this.store.audit('qq-to-mc-dedup', `群 ${group}：同一条消息已由监听 Bot 转发，跳过官方 Bot 副本`);
+          return;
+        }
         const components = makeQqComponents(resolveQqToMcTemplate(this.store.config.qqToMcTemplate), { userName, message, groupId: group, groupName });
         if (components) this.pluginExchange.enqueue(components);
       } catch (error) { this.store.audit('qq-to-mc-error', `群 ${group}：${error.message}`); }
@@ -340,8 +544,11 @@ export class Bridge {
       else if (isCode) reply = this.confirmRegistration(openid, group, submittedCode);
       else {
         const user = this.store.state.users[openid];
-        if (!user?.qq) { reply = '请先登记 QQ 号：/qqbind <你的QQ号>。按提示二次确认后，重新发送刚才的命令。'; logStatus = '未登记拦截'; }
-        else if (module) reply = await this.modules.handleCommand(module, { message, openid, group, qq: user.qq });
+        // 未登记时先尝试用 OneBot 识别的真实 QQ 号自动登记，成功就不必拦下
+        if (!user?.qq) await this.ensureRegistered(openid, group);
+        const current = this.store.state.users[openid];
+        if (!current?.qq) { reply = '请先登记 QQ 号：/qqbind <你的QQ号>。按提示二次确认后，重新发送刚才的命令。'; logStatus = '未登记拦截'; }
+        else if (module) reply = await this.modules.handleCommand(module, { message, openid, group, qq: current.qq });
         else if (/^\/qqunbind(?:\s|$)/i.test(message)) reply = await this.unbindQq(openid, message);
         else if (/^\/mcbind(?:\s|$)/i.test(message)) reply = await this.bindPlayer(openid, group, message);
         else if (/^\/mcunbind(?:\s|$)/i.test(message)) reply = await this.unbindPlayer(openid, group, message);
@@ -425,14 +632,52 @@ export class Bridge {
     if (this.store.state.users[openid] !== user) throw new Error('QQ 登记已变更，请重新发送命令');
   }
 
+  /**
+   * 自动登记：已通过 OneBot 得知真实 QQ 号时，无需用户手填。
+   * 返回 null 表示无法自动完成，调用方继续走手动流程。
+   */
+  autoRegister(openid, group) {
+    if (!this.isOneBotActive()) return null;
+    if (this.store.config.onebotPreferRealQQ === false) return null;
+    const realQQ = this.realQQForOpenid(openid);
+    if (!realQQ) return null;
+    if (this.store.state.users[openid]?.qq) return { qq: this.store.state.users[openid].qq, already: true };
+    // 这个真实 QQ 若已被别的 OpenID 登记，不能自动抢过来
+    if (this.store.qqOwner(realQQ, openid)) return null;
+    try {
+      this.store.register(openid, realQQ, group, 'onebot-auto');
+      this.store.audit('register', `OpenID ${openid} 经 OneBot 自动登记真实 QQ ${realQQ}`);
+      return { qq: realQQ, already: false };
+    } catch (error) {
+      // 不静默吞掉：自动登记失败要留痕，否则用户会莫名被拦在命令外
+      this.store.audit('onebot-auto-register-error', `OpenID ${openid} 自动登记 QQ ${realQQ} 失败：${error.message}`);
+      return null;
+    }
+  }
+
+  async ensureRegistered(openid, group) {
+    if (this.store.state.users[openid]?.qq) return true;
+    const auto = this.autoRegister(openid, group);
+    if (auto) return true;
+    return false;
+  }
+
   beginRegistration(openid, group, message) {
     if (this.store.state.users[openid]?.qq) return `已登记 QQ 号 ${this.store.state.users[openid].qq}，无需重复登记。`;
+    // 已有真实 QQ 号就直接登记，不再让用户手填和二次确认
+    const auto = this.autoRegister(openid, group);
+    if (auto) {
+      return `已通过监听 Bot 自动识别你的 QQ 号：${auto.qq}，登记完成。\n现在可以直接使用 /mcbind <玩家名>、/mymc、/motd、/list 等命令。`;
+    }
     const qq = message.match(/^\/qqbind\s+(\d{5,20})\s*$/i)?.[1];
     if (!qq || !QQ_FORMAT.test(qq)) return '格式：/qqbind <你的QQ号>，例如 /qqbind 36000000';
     if (this.store.qqOwner(qq, openid)) return '这个 QQ 号已被登记，请联系管理员核对。';
     const pending = { group, qq, code: `BIND-${randomBytes(3).toString('hex').toUpperCase()}`, expires: Date.now() + CODE_TTL };
     this.pending.set(openid, pending);
-    return `请二次核对你填写的 QQ 号：${qq}\n如果正确，请由你本人在本群 @机器人发送：${pending.code}\n有效期：5 分钟。确认后自动登记，不需要管理员审核。注意：此步骤不验证 QQ 号归属，也不会绑定 MC 玩家。`;
+    const note = this.isOneBotActive()
+      ? '\n提示：监听 Bot 尚未识别到你的 QQ 号，稍后在群里发一句话再来一次 /qqbind 可自动完成。'
+      : '';
+    return `请二次核对你填写的 QQ 号：${qq}\n如果正确，请由你本人在本群 @机器人发送：${pending.code}\n有效期：5 分钟。确认后自动登记，不需要管理员审核。注意：此步骤不验证 QQ 号归属，也不会绑定 MC 玩家。${note}`;
   }
 
   confirmRegistration(openid, group, code) {
