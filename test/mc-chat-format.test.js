@@ -85,3 +85,90 @@ test('用户自定义模板保持原样，不被迁移覆盖', () => {
   const config = validateConfig({ ...base, mcToQqTemplate: custom });
   assert.equal(config.mcToQqTemplate, custom);
 });
+
+/* ---------------- 玩家 QQ 号解析：快照不足时必须实时查 ---------------- */
+
+test('快照里有绑定关系时直接命中，不打 RCON', async () => {
+  const { Bridge } = await import('../src/bridge.js');
+  const rconCalls = [];
+  const store = {
+    config: { mcToQqEnabled: true, allowedGroups: 'g1' },
+    state: { users: {} },
+    audit: () => {},
+    qqOwner: () => null,
+    register: () => {},
+    recordPlayerCommand: () => {}
+  };
+  const bridge = new Bridge(store, {
+    rcon: async (_c, cmd) => { rconCalls.push(cmd); return ''; }
+  });
+  bridge.observeAqqbotSnapshot({
+    available: true, capturedAt: Date.now(),
+    rows: [{ qq: '123456789', players: ['Alice'] }]
+  });
+  const qq = await bridge.resolveQQForPlayer('Alice');
+  assert.equal(qq, '123456789');
+  assert.equal(rconCalls.length, 0, '快照命中时不应打 RCON');
+});
+
+test('快照缺失时用 RCON 兜底查询，避免误报未绑定', async () => {
+  const { Bridge } = await import('../src/bridge.js');
+  const rconCalls = [];
+  const store = {
+    config: { mcToQqEnabled: true, allowedGroups: 'g1', rconHost: 'x', rconPort: '1', rconPassword: 'p' },
+    state: { users: {} },
+    audit: () => {},
+    qqOwner: () => null,
+    register: () => {},
+    recordPlayerCommand: () => {}
+  };
+  const bridge = new Bridge(store, {
+    // 模拟 AQQBot 的真实查询回复格式（QQ号: xxx / 游戏名: yyy）
+    rcon: async (_c, cmd) => {
+      rconCalls.push(cmd);
+      return 'QQ号: 3907189135\n游戏名: Alice';
+    }
+  });
+  // 没有任何快照
+  const qq = await bridge.resolveQQForPlayer('Alice');
+  assert.ok(rconCalls.length > 0, '快照缺失时必须尝试 RCON 查询');
+  assert.equal(qq, '3907189135', '应解析出真实 QQ 号');
+});
+
+test('查询结果会缓存，同一玩家短时间内不重复打 RCON', async () => {
+  const { Bridge } = await import('../src/bridge.js');
+  const rconCalls = [];
+  const store = {
+    config: { mcToQqEnabled: true, allowedGroups: 'g1' },
+    state: { users: {} },
+    audit: () => {},
+    qqOwner: () => null,
+    register: () => {},
+    recordPlayerCommand: () => {}
+  };
+  const bridge = new Bridge(store, {
+    rcon: async (_c, cmd) => { rconCalls.push(cmd); return 'QQ号: 3907189135\n游戏名: Alice'; }
+  });
+  await bridge.resolveQQForPlayer('Alice');
+  const firstCalls = rconCalls.length;
+  await bridge.resolveQQForPlayer('Alice');
+  await bridge.resolveQQForPlayer('Alice');
+  assert.equal(rconCalls.length, firstCalls, '缓存期内不应重复查询');
+});
+
+test('RCON 查询失败时不抛错，退回空值让模板显示未绑定', async () => {
+  const { Bridge } = await import('../src/bridge.js');
+  const audits = [];
+  const store = {
+    config: { mcToQqEnabled: true, allowedGroups: 'g1' },
+    state: { users: {} },
+    audit: (kind, detail) => audits.push({ kind, detail }),
+    qqOwner: () => null,
+    register: () => {},
+    recordPlayerCommand: () => {}
+  };
+  const bridge = new Bridge(store, { rcon: async () => { throw new Error('RCON 超时'); } });
+  const qq = await bridge.resolveQQForPlayer('Alice');
+  assert.equal(qq, '');
+  assert.ok(audits.some(a => a.kind === 'player-qq-lookup-error'), '查询失败应留审计记录');
+});

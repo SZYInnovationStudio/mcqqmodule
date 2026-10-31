@@ -95,6 +95,11 @@ export class Bridge {
     this.realGroupToOpenid = new Map();
     /** 最近的 OneBot 群消息，用于和官方 Bot 侧做内容匹配 */
     this.recentOneBotMessages = [];
+    /** 本平台刚发出的内容，用来识别监听 Bot 收回来的自己人回声 */
+    this.recentOwnSent = [];
+    /** 玩家名 → { qq, at } 缓存，避免同一玩家连续发言时反复查 RCON */
+    this.playerQQCache = new Map();
+    this.playerQQCacheMs = deps.playerQQCacheMs ?? 60_000;
     if (this.onebot) this.bindOneBotEvents();
   }
 
@@ -114,6 +119,10 @@ export class Bridge {
   /** 记录 OneBot 拿到的真实 QQ 号，供绑定时自动取用 */
   handleOneBotGroupMessage(message) {
     if (!message.groupId || !message.userId) return;
+    // 机器人自己发的消息不算：本平台通过官方 Bot 往群里发的内容，
+    // 也会被监听 Bot 收进来。若当成「群友发言」学习，就会把机器人自己的
+    // 内容错认成某个群友，污染 OpenID↔QQ 关联。
+    if (this.isOwnSentText(message.text)) return;
     this.rememberRealQQ(message.groupId, message.userId);
     if (message.text) {
       const key = this.fingerprint(message.groupId, message.userId, message.text);
@@ -122,6 +131,25 @@ export class Bridge {
       this.rememberOneBotMessage(message);
     }
     this.pruneFingerprints();
+  }
+
+  /** 记下本平台刚发出的内容，用来识别监听 Bot 收回来的「自己人回声」 */
+  rememberOwnSentText(content) {
+    const text = String(content ?? '').trim();
+    if (!text) return;
+    this.recentOwnSent.push({ text, at: Date.now() });
+    const cutoff = Date.now() - this.relayDedupWindowMs;
+    this.recentOwnSent = this.recentOwnSent.filter(item => item.at >= cutoff);
+    if (this.recentOwnSent.length > 50) this.recentOwnSent.shift();
+  }
+
+  /** 这条文本是不是本平台刚发出去的（监听 Bot 的回声） */
+  isOwnSentText(text) {
+    const value = String(text ?? '').trim();
+    if (!value) return false;
+    const cutoff = Date.now() - this.relayDedupWindowMs;
+    this.recentOwnSent = this.recentOwnSent.filter(item => item.at >= cutoff);
+    return this.recentOwnSent.some(item => item.text === value);
   }
 
   /**
@@ -461,15 +489,54 @@ export class Bridge {
   async sendMcChatToQq(chat) {
     if (this.stopped || this.store.config.mcToQqEnabled !== true || !this.bot || this.status !== '已连接') return;
     // 查出这个玩家在 AQQBot 里绑定的 QQ 号，让群里能看到是谁
-    const qq = this.qqForPlayer(chat?.player);
+    const qq = await this.resolveQQForPlayer(chat?.player);
     const content = formatMcToQq(this.store.config.mcToQqTemplate || DEFAULT_MC_TO_QQ_TEMPLATE, { ...chat, qq });
     await this.sendToAllowedGroups(content, 'mc-to-qq-error');
   }
 
   /**
-   * 查玩家绑定的 QQ 号。
-   * 优先用最近一次 AQQBot 快照（插件同步过来的），比实时 RCON 查询快得多，
-   * 也避免每次玩家说话都打一次 RCON。
+   * 解析玩家绑定的 QQ 号，三级兜底：
+   *   1. 进程内缓存（避免同一玩家连续发言时反复查询）
+   *   2. AQQBot 快照（插件同步过来的，最新最省事）
+   *   3. 实时 RCON 查询（快照过期或还没同步时兜底）
+   *
+   * 只靠快照是不够的：插件没开启整库同步、或刚启动还没收到快照时，
+   * 快照是空的，会误报「未绑定」。
+   */
+  async resolveQQForPlayer(player) {
+    const name = String(player ?? '').trim();
+    if (!name) return '';
+
+    // 1. 缓存
+    const cached = this.playerQQCache.get(name);
+    if (cached && Date.now() - cached.at < this.playerQQCacheMs) return cached.qq;
+
+    // 2. 快照
+    const fromSnapshot = this.qqForPlayer(name);
+
+    // 3. 实时查询（快照没查到才查，避免不必要的 RCON 压力）
+    let qq = fromSnapshot;
+    if (!qq) {
+      try {
+        const owner = await queryPlayerOwner(this.store.config, this.rcon, name);
+        if (owner) qq = String(owner);
+      } catch (error) {
+        this.store.audit('player-qq-lookup-error', `查询玩家 ${name} 的 QQ 失败：${error.message}`);
+      }
+    }
+
+    // 查到就缓存，查不到也缓存短时间，避免刷屏时反复打 RCON
+    this.playerQQCache.set(name, { qq, at: Date.now() });
+    if (this.playerQQCache.size > 500) {
+      const oldest = [...this.playerQQCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) this.playerQQCache.delete(oldest[0]);
+    }
+    return qq;
+  }
+
+  /**
+   * 查玩家绑定的 QQ 号（只看快照，不发 RCON）。
+   * 优先用最近一次 AQQBot 快照（插件同步过来的），比实时 RCON 查询快得多。
    */
   qqForPlayer(player) {
     const name = String(player ?? '').trim();
@@ -538,6 +605,7 @@ export class Bridge {
   }
 
   async sendToAllowedGroups(content, auditCategory) {
+    this.rememberOwnSentText(content);
     for (const targetId of this.store.config.allowedGroups?.split(',').filter(Boolean) ?? []) {
       try { await this.bot.sendText({ scope: 'group', targetId }, content); }
       catch (error) { this.store.audit(auditCategory, `群 ${targetId}：${error.message}`); }

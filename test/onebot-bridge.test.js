@@ -395,3 +395,29 @@ test('【不误杀】没有 messageId 时退回按内容去重，仍能挡住双
   assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容'), false);
   assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容'), true);
 });
+
+/* ---------------- 机器人自己的回声不能污染学习 ---------------- */
+
+test('【回声过滤】本平台发出的内容，被监听 Bot 收到后不算群友发言', async () => {
+  const { bridge } = makeBridge();
+  // 平台往群里发了一条 MC → QQ 的消息
+  bridge.rememberOwnSentText('[服务器] Alice（QQ 123456789）: 你好');
+  // 监听 Bot 把这条也收进来了
+  bridge.handleOneBotGroupMessage({
+    groupId: '987654321',
+    userId: '999999',
+    text: '[服务器] Alice（QQ 123456789）: 你好',
+    displayName: '某人',
+    nickname: '某人'
+  });
+  // 不应该把这条当成某人发的，更不该被用来学习 OpenID↔QQ
+  const learned = bridge.learnFromOfficial('openid_user_1', 'group_openid_aaaa', '某人', '[服务器] Alice（QQ 123456789）: 你好');
+  assert.equal(learned, null, '自己发的回声不能被用来学习');
+});
+
+test('【回声过滤】正常群友发言不受影响', () => {
+  const { bridge } = makeBridge();
+  bridge.rememberOwnSentText('[服务器] Alice（QQ 123456789）: 你好');
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '这是群友说的话' }));
+  assert.equal(bridge.realQQFor('987654321', '123456789'), '123456789', '正常发言仍应被记录');
+});
