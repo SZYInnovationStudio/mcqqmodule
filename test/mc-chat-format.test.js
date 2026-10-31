@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMcToQq, stripMentions } from '../src/mc-chat-format.js';
+import { formatMcToQq, stripMentions, sanitizeQqContent } from '../src/mc-chat-format.js';
 import { DEFAULT_MC_TO_QQ_TEMPLATE, validateConfig } from '../src/config.js';
 
 /* ---------------- MC → QQ 显示 QQ 号 ---------------- */
@@ -47,6 +47,30 @@ test('清理 OneBot 的 CQ 码 @ 标记', () => {
 
 test('清理未闭合的残留 @ 标记', () => {
   assert.equal(stripMentions('</@abc> 文字'), '文字');
+});
+
+/* ---------------- 官方 Bot 泄漏的表情/贴纸标记 ---------------- */
+
+test('表情标记 <faceType=...> 转成 [表情]', () => {
+  assert.equal(sanitizeQqContent('<faceType=6,faceId="0">'), '[表情]');
+  assert.equal(sanitizeQqContent('<faceType=6,faceId="0">,ext="eyJ0ZXh0"'), '[表情]');
+  assert.equal(sanitizeQqContent('<faceType=6,faceId="0">,ext=abc123'), '[表情]');
+});
+
+test('图片与 @全体成员标记被正确转换或清除', () => {
+  assert.equal(sanitizeQqContent('看这个<qqbot-cdn url="http://x">图'), '看这个[图片]图');
+  assert.equal(sanitizeQqContent('<qqbot-at-everyone /> 通知'), '通知');
+  assert.equal(sanitizeQqContent('<emoji:123>哈哈'), '[表情]哈哈');
+});
+
+test('普通文本不被误伤', () => {
+  assert.equal(sanitizeQqContent('正常聊天内容'), '正常聊天内容');
+  assert.equal(sanitizeQqContent('你好啊'), '你好啊');
+});
+
+test('@ 与表情同时出现时两者都保住', () => {
+  const input = '<@123456789> <faceType=6,faceId="0">,ext="abc"';
+  assert.equal(stripMentions(sanitizeQqContent(input)), '@123456789 [表情]');
 });
 
 test('没有 @ 标记时原样返回', () => {
@@ -171,4 +195,42 @@ test('RCON 查询失败时不抛错，退回空值让模板显示未绑定', asy
   const qq = await bridge.resolveQQForPlayer('Alice');
   assert.equal(qq, '');
   assert.ok(audits.some(a => a.kind === 'player-qq-lookup-error'), '查询失败应留审计记录');
+});
+
+/* ---------------- 插件下发队列不能轻易丢消息 ---------------- */
+
+test('【队列】积压 200 条时一条都不能丢', async () => {
+  const { PluginChatExchange } = await import('../src/plugin-chat.js');
+  const exchange = new PluginChatExchange(() => {});
+  for (let i = 0; i < 200; i += 1) {
+    exchange.enqueue([{ text: `消息${i}` }]);
+  }
+  assert.equal(exchange.outgoing.length, 200, '200 条应全部保留在队列里');
+  // 每次下发 20 条，分 10 次取完；配合 ack 不会重复也不会漏
+  const first = exchange.exchange({ ack: 0, sent: [], epoch: exchange.epoch });
+  assert.equal(first.receive.length, 20, '单次最多下发 20 条');
+  assert.equal(first.receive[0].id, 1, '从最早的一条开始下发');
+});
+
+test('【队列】只有极端积压时才丢最早的，并上报丢弃数量', async () => {
+  const { PluginChatExchange } = await import('../src/plugin-chat.js');
+  const dropped = [];
+  const exchange = new PluginChatExchange(() => {});
+  exchange.onDrop = n => dropped.push(n);
+  for (let i = 0; i < 520; i += 1) {
+    exchange.enqueue([{ text: `消息${i}` }]);
+  }
+  assert.equal(exchange.outgoing.length, 500, '队列上限 500');
+  assert.ok(dropped.length > 0, '丢弃时应上报，便于排查');
+  assert.ok(dropped.reduce((a, b) => a + b, 0) === 20, '总共丢弃 20 条');
+});
+
+test('【队列】ack 确认后正确清理已下发消息', async () => {
+  const { PluginChatExchange } = await import('../src/plugin-chat.js');
+  const exchange = new PluginChatExchange(() => {});
+  for (let i = 0; i < 30; i += 1) exchange.enqueue([{ text: `m${i}` }]);
+  // 插件确认收到前 20 条
+  const result = exchange.exchange({ ack: 20, sent: [], epoch: exchange.epoch });
+  assert.equal(exchange.outgoing.length, 10, '已确认的应被清理');
+  assert.equal(result.receive[0].id, 21, '剩余从第 21 条继续');
 });

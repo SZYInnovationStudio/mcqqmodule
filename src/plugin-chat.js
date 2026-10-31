@@ -1,5 +1,10 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 
+/** 待下发队列上限，仅用于防内存泄漏；超限才会丢弃最早的 */
+const MAX_OUTGOING = 500;
+/** 每次交换最多下发的条数，与插件侧单次处理能力匹配 */
+const MAX_BATCH = 20;
+
 export function matchesPluginKey(header, expected) {
   const actual = /^Bearer ([A-Za-z0-9_-]{32,128})$/.exec(String(header ?? ''))?.[1];
   if (!expected || !actual) return false;
@@ -44,7 +49,15 @@ export class PluginChatExchange {
   enqueue(components) {
     if (!Array.isArray(components) || !components.length || components.length > 32) throw new Error('插件消息格式无效');
     this.outgoing.push({ id: this.nextId++, components });
-    if (this.outgoing.length > 100) this.outgoing.shift();
+    // 上限只用于防内存泄漏。以前这里是 100，而插件每次只取 20 条，
+    // 群里消息一密集就会「边塞边丢最早的」，表现为「游戏里偶尔收不到」。
+    // 现在放宽到 500，并把被挤掉的记下来，便于排查。
+    if (this.outgoing.length > MAX_OUTGOING) {
+      const dropped = this.outgoing.length - MAX_OUTGOING;
+      this.outgoing.splice(0, dropped);
+      this.dropped = (this.dropped ?? 0) + dropped;
+      this.onDrop?.(dropped);
+    }
   }
 
   exchange(input) {
@@ -69,6 +82,7 @@ export class PluginChatExchange {
           ? this.onPresence({ kind, player: item.player, players: item.players })
           : this.onLifecycle({ kind })).catch(() => {});
     }
-    return { epoch: this.epoch, receive: this.outgoing.slice(0, 20) };
+    // 每次最多下发 20 条，但用 slice 从队首取，配合 ack 确认不会漏
+    return { epoch: this.epoch, receive: this.outgoing.slice(0, MAX_BATCH) };
   }
 }

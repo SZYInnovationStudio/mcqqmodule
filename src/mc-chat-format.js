@@ -50,3 +50,39 @@ export function stripMentions(text) {
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
+
+/**
+ * 清洗 QQ 官方 Bot 泄漏的非文本标记。
+ *
+ * 群友发表情包、图片、贴纸时，官方 Bot 有时会把内部标记当纯文本传过来，例如：
+ *   <faceType=6,faceId="0">,ext="eyJ0ZXh0Ijoi..."""
+ *   <qqbot-at-everyone />
+ *   <emoji:N>...
+ * 这些丢进 MC 里就是一串看不懂的乱码，必须换成可读的占位符。
+ */
+export function sanitizeQqContent(text) {
+  return String(text ?? '')
+    // 表情 / 贴纸：<faceType=6,faceId="0">,ext="base64...">
+    // 必须一次吃掉整个「标签 + 可选的 ,ext=...」尾巴：
+    // 拆成两条规则时，第一条会把标签吃掉，留下孤零零的 ext= 清理不掉
+    .replace(/<faceType=[^>]*>(?:\s*,?\s*ext=(?:"[^"]*"|[^\s,>]*))?/gi, '[表情]')
+    // 独立出现的 ext="..." 尾巴（base64），整段清掉
+    .replace(/,?\s*ext="[^"]*"/gi, '')
+    .replace(/,?\s*ext=[^\s,>{]+/gi, '')
+    // 官方 Bot 的图片与贴纸标记
+    .replace(/<qqbot-(?:cdn|img|pic)[^>]*>/gi, '[图片]')
+    .replace(/<qqbot-emoji[^>]*>/gi, '[表情]')
+    .replace(/<qqbot-[a-z-]+[^>]*>/gi, '')
+    // <emoji:123> 形式
+    .replace(/<emoji:\d+>/gi, '[表情]')
+    // 其他尖括号标签
+    .replace(/<\/?[a-zA-Z][^>]{0,300}>/g, '')
+    // 多个占位符合并
+    .replace(/(\[表情\])+/g, '[表情]')
+    .replace(/(\[图片\])+/g, '[图片]')
+    // 清理残留的孤立逗号与多余空格
+    .replace(/\s*,\s*(?=\[|$)/g, ' ')
+    .replace(/^\s*,\s*/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}

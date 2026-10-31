@@ -5,7 +5,7 @@ import { rconCommand } from './rcon.js';
 import { queryMotd } from './motd.js';
 import { parseOnlineList } from './chat-relay.js';
 import { makeQqComponents, parseNameMap } from './qq-chat.js';
-import { formatMcToQq, stripMentions } from './mc-chat-format.js';
+import { formatMcToQq, stripMentions, sanitizeQqContent } from './mc-chat-format.js';
 import { normalizeCommand } from './commands.js';
 import { resolveQqToMcTemplate, DEFAULT_MC_TO_QQ_TEMPLATE, DEFAULT_PRESENCE_JOIN_TEMPLATE, DEFAULT_PRESENCE_QUIT_TEMPLATE, DEFAULT_SERVER_ONLINE_TEMPLATE, DEFAULT_SERVER_OFFLINE_TEMPLATE } from './config.js';
 import { formatMessageTemplate } from './message-templates.js';
@@ -61,7 +61,7 @@ export class Bridge {
     this.discoveredSenders = new Set();
     this.status = '未连接';
     this.bot = null;
-    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat), event => this.sendMcPresenceToQq(event), event => this.sendMcLifecycleToQq(event));
+    this.pluginExchange = this.createPluginExchange();
     this.pluginConnection = new PluginConnectionState();
     this.pluginVersion = '未上报';
     this.pluginConnectionTimer = null;
@@ -101,6 +101,20 @@ export class Bridge {
     this.playerQQCache = new Map();
     this.playerQQCacheMs = deps.playerQQCacheMs ?? 60_000;
     if (this.onebot) this.bindOneBotEvents();
+  }
+
+  /** 创建插件消息交换器（构造与重启时都要用，抽出来避免两处漂移） */
+  createPluginExchange() {
+    const exchange = new PluginChatExchange(
+      chat => this.sendMcChatToQq(chat),
+      event => this.sendMcPresenceToQq(event),
+      event => this.sendMcLifecycleToQq(event)
+    );
+    // 队列被挤爆时留痕：说明 QQ→MC 的下发跟不上，通常是插件断线或超时
+    exchange.onDrop = dropped => {
+      try { this.store.audit('plugin-queue-drop', `待下发队列过载，丢弃了 ${dropped} 条最早的消息`); } catch {}
+    };
+    return exchange;
   }
 
   /** 把 OneBot 的事件接到现有处理链上 */
@@ -353,7 +367,7 @@ export class Bridge {
   restart() {
     this.stop();
     this.stopped = false;
-    this.pluginExchange = new PluginChatExchange(chat => this.sendMcChatToQq(chat), event => this.sendMcPresenceToQq(event), event => this.sendMcLifecycleToQq(event));
+    this.pluginExchange = this.createPluginExchange();
     this.onebot?.restart({
       enabled: this.store.config.onebotEnabled === true,
       token: this.store.config.onebotToken ?? '',
@@ -627,8 +641,9 @@ export class Bridge {
       this.store.audit('chat-sender-discovered', `群 ${group}，成员 OpenID ${openid}，官方 Bot 昵称：${String(event.senderName ?? '未知').slice(0, 48)}`);
     }
     const originalMessage = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
-    // 清掉消息正文里残留的 @ 标记，否则到 MC 里会变成一串看不懂的 OpenID
-    const message = normalizeCommand(stripMentions(originalMessage));
+    // 依次清掉：官方 Bot 泄漏的表情/贴纸标记、残留的 @ 标记
+    // 顺序不能反：先清表情标记，否则 <faceType=...> 里的尖括号会干扰 @ 清理
+    const message = normalizeCommand(stripMentions(sanitizeQqContent(originalMessage)));
     const module = this.modules?.commandFor(message) ?? null;
     const isCode = /^BIND-[A-F0-9]{6}$/i.test(message);
     const submittedCode = isCode ? message.toUpperCase() : null;
