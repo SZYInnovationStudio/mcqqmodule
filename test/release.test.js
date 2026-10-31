@@ -25,6 +25,23 @@ test('发版工作流有写入 Release 的权限且不并发覆盖', () => {
   assert.match(workflow, /cancel-in-progress: false/);
 });
 
+test('Release 正文由脚本完整重写，不追加自动变更说明', () => {
+  // generate_release_notes 会在同名 Release 上追加，重复推送会叠出多份 Full Changelog
+  assert.match(workflow, /generate_release_notes:\s*false/);
+  assert.match(workflow, /body_path:\s*dist\/RELEASE-NOTES\.md/);
+  assert.match(workflow, /node scripts\/release-notes\.mjs/);
+  // 正文脚本必须给出每个附件的下载直链
+  const notes = read('scripts/release-notes.mjs');
+  assert.match(notes, /releases\/download\//);
+});
+
+test('Release 正文不改写 dist/release 之外的内容，避免被当成附件', () => {
+  const notes = read('scripts/release-notes.mjs');
+  // 输出必须落在 dist/ 根目录，而不是 dist/release/
+  assert.match(notes, /join\(root, 'dist', 'RELEASE-NOTES\.md'\)/);
+  assert.doesNotMatch(notes, /join\(releaseDir, 'RELEASE-NOTES\.md'\)/);
+});
+
 test('打包脚本从不把 data、密钥、依赖和日志放进公开包', () => {
   // 排除规则必须覆盖这些
   for (const pattern of ['data', 'node_modules', 'master\\.key', '\\.env', 'target', '\\.log']) {

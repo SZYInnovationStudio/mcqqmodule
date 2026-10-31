@@ -76,11 +76,18 @@ jobs:
       - name: Assemble release assets
         run: node scripts/assemble-release.mjs
 
+      - name: Generate release notes
+        run: node scripts/release-notes.mjs
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.v.outputs.tag }}
           name: ${{ steps.v.outputs.tag }}
+          body_path: dist/RELEASE-NOTES.md
           files: dist/release/*
-          generate_release_notes: true
+          # 不用 generate_release_notes：它在同名 Release 存在时会追加内容，
+          # 重复推送同一版本会叠出多份 Full Changelog。正文统一由
+          # scripts/release-notes.mjs 每次完整重写。
+          generate_release_notes: false
           make_latest: true

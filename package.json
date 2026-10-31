@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "build:checkin": "node scripts/build-checkin-module.mjs",
-    "build:release": "node scripts/assemble-release.mjs",
+    "build:release": "node scripts/assemble-release.mjs && node scripts/release-notes.mjs",
     "test": "node --test test/admin-api.test.js test/account.test.js test/aqqbot.test.js test/checkin.test.js test/commands.test.js test/core.test.js test/modules.test.js test/plugin-source.test.js test/registrations.test.js test/release.test.js test/security.test.js test/status.test.js"
   },
   "dependencies": {

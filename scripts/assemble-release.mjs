@@ -255,12 +255,20 @@ if (pluginJar) {
   console.log(`JAR=${jarName}`);
 }
 
-// 增量模块包
+// 增量模块包：只发布当前版本，旧版留在 Git 历史里，避免附件里堆一堆旧包
+// 当前模块版本由 scripts/build-checkin-module.mjs 决定
+const moduleVersion = (await readFile(join(root, 'scripts', 'build-checkin-module.mjs'), 'utf8'))
+  .match(/version:\s*'([^']+)'/)?.[1];
 const distFiles = await readdir(join(root, 'dist'));
 for (const file of distFiles) {
-  if (file.endsWith('.mcqqmodule') || file.endsWith('.szydmodule')) {
+  const isCurrentModule =
+    file.endsWith('.mcqqmodule') &&
+    (!moduleVersion || file.includes(`-${moduleVersion}.mcqqmodule`));
+  if (isCurrentModule) {
     await copyFile(join(root, 'dist', file), join(outDir, file));
     console.log(`MODULE=${file}`);
+  } else if (file.endsWith('.mcqqmodule') || file.endsWith('.szydmodule')) {
+    console.log(`跳过旧版模块：${file}`);
   }
 }
 
