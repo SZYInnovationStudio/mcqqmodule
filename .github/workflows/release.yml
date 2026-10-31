@@ -1,0 +1,86 @@
+name: Build and Publish Release
+
+# push 到 main（或手动触发）时，读取 package.json 与插件 pom.xml 的版本号，
+# 运行测试、编译插件 JAR、打包增量模块与公开分发包，作为 GitHub Release 附件发布，
+# tag 为 v<后台版本号>。
+#
+# 与 docker-publish.yml 相同的原则：工作流只读仓库、不做任何提交，
+# 因此不需要 PAT，也不会产生 github-actions[bot] 的提交。
+# 版本号完全由仓库里的 package.json（后台）与 minecraft-plugin/pom.xml（插件）决定。
+#
+# 幂等：同名 Release 已存在时覆盖附件并更新说明，重复推送不会失败。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支只保留最新一次运行；不 cancel-in-progress，
+# 以免正在上传附件的 Release 变成空壳。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 生成 Release 说明需要提交历史
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read versions
+        id: v
+        run: |
+          APP=$(node -p 'require("./package.json").version')
+          PLUGIN=$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' minecraft-plugin/pom.xml | head -n1)
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "plugin=$PLUGIN" >> "$GITHUB_OUTPUT"
+          echo "tag=v$APP" >> "$GITHUB_OUTPUT"
+          echo "APP_VERSION=$APP" >> "$GITHUB_ENV"
+          echo "PLUGIN_VERSION=$PLUGIN" >> "$GITHUB_ENV"
+          echo "后台版本 $APP / 插件版本 $PLUGIN / tag v$APP"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build checkin module
+        run: npm run build:checkin
+
+      - name: Build plugin jar
+        run: |
+          mvn -B -U \
+            -gs minecraft-plugin/maven-settings.xml \
+            -s minecraft-plugin/maven-settings.xml \
+            -f minecraft-plugin/pom.xml clean package
+          ls -l minecraft-plugin/target/*.jar
+
+      - name: Assemble release assets
+        run: node scripts/assemble-release.mjs
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: ${{ steps.v.outputs.tag }}
+          files: dist/release/*
+          generate_release_notes: true
+          make_latest: true
