@@ -32,6 +32,7 @@ const INCLUDED = [
   'scripts',
   'deploy',
   'tasks',
+  'test',
   'package.json',
   'package-lock.json',
   'README.md',

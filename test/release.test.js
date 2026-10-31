@@ -4,12 +4,19 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 
 const root = new URL('..', import.meta.url);
 const read = (rel) => readFileSync(new URL(rel, root), 'utf8');
+const exists = (rel) => existsSync(new URL(rel, root));
 
-const workflow = read('.github/workflows/release.yml');
+/**
+ * 公开分发包里不含 .github/，所以工作流相关的检查只在 Git 仓库内执行。
+ * 这样用户在解压后的包里跑 npm test 也能全绿，而不是被一个必然的 ENOENT 吓到。
+ */
+const inRepo = exists('.github/workflows/release.yml');
+const workflow = inRepo ? read('.github/workflows/release.yml') : '';
 const assembler = read('scripts/assemble-release.mjs');
 const pkg = JSON.parse(read('package.json'));
+const maybe = inRepo ? test : test.skip;
 
-test('发版工作流由 package.json 版本号决定 tag', () => {
+test('发版工作流由 package.json 版本号决定 tag', maybe, () => {
   assert.match(workflow, /name: Build and Publish Release/);
   assert.match(workflow, /tag_name:/);
   // 版本号只能来自 package.json，工作流不得自行改写仓库
@@ -20,12 +27,12 @@ test('发版工作流由 package.json 版本号决定 tag', () => {
   assert.match(workflow, /node scripts\/assemble-release\.mjs/);
 });
 
-test('发版工作流有写入 Release 的权限且不并发覆盖', () => {
+test('发版工作流有写入 Release 的权限且不并发覆盖', maybe, () => {
   assert.match(workflow, /permissions:\s*\n\s*contents: write/);
   assert.match(workflow, /cancel-in-progress: false/);
 });
 
-test('Release 正文由脚本完整重写，不追加自动变更说明', () => {
+test('Release 正文由脚本完整重写，不追加自动变更说明', maybe, () => {
   // generate_release_notes 会在同名 Release 上追加，重复推送会叠出多份 Full Changelog
   assert.match(workflow, /generate_release_notes:\s*false/);
   assert.match(workflow, /body_path:\s*dist\/RELEASE-NOTES\.md/);
