@@ -87,6 +87,8 @@ export class Bridge {
     this.relayDedupWindowMs = deps.relayDedupWindowMs ?? 15_000;
     /** OpenID → 真实 QQ 号（由 OneBot 群消息间接学习得到） */
     this.openidToRealQQ = new Map();
+    /** OpenID → 监听 Bot 报告的最新显示名（群名片优先） */
+    this.displayNamesByOpenid = new Map();
     /** 群 OpenID → 真实群号 */
     this.openidGroupToReal = new Map();
     /** 真实群号 → 群 OpenID */
@@ -176,12 +178,36 @@ export class Bridge {
       this.openidToRealQQ.set(openid, hit.userId);
       this.store.audit('onebot-link', `OpenID ${openid} 关联到真实 QQ ${hit.userId}（依据群消息内容与时间窗）`);
     }
+    // 顺带记下监听源看到的显示名，聊天时优先使用
+    this.rememberDisplayName(openid, hit.displayName);
     return hit.userId;
   }
 
   /** 取某个 OpenID 已知的真实 QQ 号（可能为空） */
   realQQForOpenid(openid) {
     return this.openidToRealQQ.get(openid) ?? null;
+  }
+
+  /**
+   * 从监听 Bot 学到的最新显示名（群名片优先）。
+   * 记在 openidToRealQQ 命中之后，因为要先确认是同一个人。
+   */
+  rememberDisplayName(openid, displayName) {
+    if (!openid || !displayName) return;
+    this.displayNamesByOpenid.set(openid, String(displayName).slice(0, 48));
+  }
+
+  /** 监听源优先：拿到过就用它，否则返回空让调用方兜底 */
+  displayNameFromOneBot(openid, officialName) {
+    if (!this.isOneBotActive()) return '';
+    const learned = this.displayNamesByOpenid.get(openid);
+    if (learned) return learned;
+    if (!officialName) return '';
+    // 还没学到同一个人时，按「同显示名」从最近上报里找一次
+    const cutoff = Date.now() - this.relayDedupWindowMs;
+    const hit = this.recentOneBotMessages.find(item => item.at >= cutoff &&
+      (item.displayName === officialName || item.nickname === officialName));
+    return hit?.displayName ?? '';
   }
 
   /** 取某个群 OpenID 对应的真实群号（可能为空） */
@@ -254,13 +280,19 @@ export class Bridge {
 
   /**
    * 官方 Bot 只给群 OpenID，OneBot 给的是真实群号。
-   * 关闭 OneBot 时完全退回旧版：只用管理员配置的「群名称映射」。
+   * 优先级：手工配置映射 > 监听 Bot 学到的群名 > 空。
    */
   realGroupNameFor(groupOpenid) {
     const configured = parseNameMap(this.store.config.groupNames, '群名称映射').get(groupOpenid);
     if (configured) return configured;
     if (!this.isOneBotActive()) return '';
-    // 只有一个群有名称时可以直接用，多个群就无法安全推断
+    // 已经学过「群 OpenID → 真实群号」就直接查
+    const realId = this.openidGroupToReal.get(groupOpenid);
+    if (realId) {
+      const name = this.groupNamesByRealId.get(realId);
+      if (name) return name;
+    }
+    // 还没学过关系统时，若只监听到一个群，可以直接用它的名字
     const names = [...new Set(this.groupNamesByRealId.values())];
     return names.length === 1 ? names[0] : '';
   }
@@ -526,8 +558,17 @@ export class Bridge {
     const learnedRealQQ = this.learnFromOfficial(openid, group, String(event.senderName ?? ''), normalCommandText(message));
     if (isChat && !module) {
       try {
-        const userName = parseNameMap(this.store.config.memberNames, '成员显示名映射').get(openid) || event.senderName || this.store.state.users[openid]?.qq || '群友';
-        const groupName = parseNameMap(this.store.config.groupNames, '群名称映射').get(group) || this.realGroupNameFor(group) || 'QQ群';
+        // 优先用监听 Bot 的显示名与群名，官方 Bot 只作兜底。
+        // 监听源看得到群名片，比官方 Bot 的昵称准确得多。
+        const memberMap = parseNameMap(this.store.config.memberNames, '成员显示名映射');
+        const groupMap = parseNameMap(this.store.config.groupNames, '群名称映射');
+        const sentDisplayName = event.senderName;
+        const userName = memberMap.get(openid)
+          || this.displayNameFromOneBot(openid, sentDisplayName)
+          || sentDisplayName
+          || this.store.state.users[openid]?.qq
+          || '群友';
+        const groupName = groupMap.get(group) || this.realGroupNameFor(group) || 'QQ群';
         // 双源去重：OneBot 若已转发过同一条消息，这里就不要重复刷屏
         if (learnedRealQQ && this.isDuplicateRelay(group, learnedRealQQ, message)) {
           this.store.audit('qq-to-mc-dedup', `群 ${group}：同一条消息已由监听 Bot 转发，跳过官方 Bot 副本`);

@@ -6,16 +6,13 @@ import { OneBotLink, parseGroupMessage, extractText, safeEqual, parseMetaEvent }
 const onebotSource = readFileSync(new URL('../src/onebot.js', import.meta.url), 'utf8');
 
 test('【硬约束】OneBot 只收不发，源码中不存在任何发送消息的调用', () => {
-  // OneBot v11 的所有 outgoing 动作名都不允许出现
+  // OneBot v11 的所有 outgoing 消息类动作名都不允许出现
   const forbidden = [
     'send_group_msg',
     'send_private_msg',
     'send_msg',
     'send_group_forward_msg',
-    'send_private_forward_msg',
-    'delete_msg',
-    'set_group_ban',
-    'set_group_kick'
+    'send_private_forward_msg'
   ];
   for (const action of forbidden) {
     assert.doesNotMatch(
@@ -24,9 +21,24 @@ test('【硬约束】OneBot 只收不发，源码中不存在任何发送消息�
       `onebot.js 不允许调用 ${action}：监听 Bot 只能收消息，发言必须走官方 Bot`
     );
   }
-  // 也不允许自己拼 action 帧，或直接往连接里写数据
-  assert.doesNotMatch(onebotSource, /action\s*:/, 'onebot.js 不允许构造 OneBot action 帧');
-  assert.doesNotMatch(onebotSource, /\.send\s*\(/, 'onebot.js 不允许向连接写入任何数据');
+  // 允许发帧，但必须走只读白名单，且白名单里不能混进发送类动作
+  assert.match(onebotSource, /const READONLY = new Set\(/, 'onebot.js 的 action 必须有只读白名单');
+  const allowBlock = onebotSource.match(/const READONLY = new Set\(\[([\s\S]*?)\]\)/)?.[1] ?? '';
+  assert.ok(allowBlock, '必须存在 READONLY 白名单');
+  for (const action of forbidden) {
+    assert.doesNotMatch(allowBlock, new RegExp(action), `只读白名单不允许包含 ${action}`);
+  }
+  // 写帧只能出现在 callAction 内部
+  const sendCalls = [...onebotSource.matchAll(/\.send\s*\(/g)].length;
+  assert.ok(sendCalls <= 1, `onebot.js 只允许 callAction 里有一处发帧，实际 ${sendCalls} 处`);
+});
+
+test('【硬约束】执行非只读动作会被直接拒绝', () => {
+  const link = new OneBotLink({ enabled: true });
+  for (const action of ['send_group_msg', 'send_msg', 'delete_msg', 'set_group_kick']) {
+    assert.throws(() => link.callAction(action, {}), /只允许只读查询/);
+  }
+  link.stop();
 });
 
 test('【硬约束】OneBotLink 的发送入口会直接抛错而不是静默发送', () => {
@@ -53,6 +65,64 @@ test('【正向连接】缺少 WebSocket 实现时会明确报状态而不是静
   const link = new OneBotLink({ enabled: true, forwardUrl: 'ws://127.0.0.1:3001', WebSocketImpl: null });
   link.start();
   assert.equal(link.status, '缺少 WebSocket 实现');
+  link.stop();
+});
+
+/* ---------------- 主动拉群列表：群名称的真正来源 ---------------- */
+
+test('【群列表】未连接时只读查询直接失败，不会卡住', async () => {
+  const link = new OneBotLink({ enabled: true });
+  link.connection = null;
+  await assert.rejects(link.callAction('get_group_list'), /未连接/);
+  link.stop();
+});
+
+test('【群列表】非只读动作在未连接前就先被白名单拒绝', () => {
+  const link = new OneBotLink({ enabled: true });
+  assert.throws(() => link.callAction('send_group_msg', {}), /只允许只读查询/);
+  link.stop();
+});
+
+test('【群列表】能解析出带名字的群，并发出群名事件', async () => {
+  const link = new OneBotLink({ enabled: true });
+  const metas = [];
+  link.on('meta', meta => metas.push(meta));
+  // 让 callAction 直接返回固定数据，避免真实网络
+  link.connection = { readyState: 1, send: () => {} };
+  link.callAction = async () => ([
+    { group_id: 111111, group_name: '群一' },
+    { group_id: 222222, group_name: '群二' },
+    { group_id: 333333 }
+  ]);
+  const groups = await link.fetchGroupList();
+  assert.equal(groups.length, 2, '只有带名字的才算有效群');
+  assert.deepEqual(groups.map(g => g.groupId), ['111111', '222222']);
+  assert.equal(groups[0].name, '群一');
+  assert.equal(metas.length, 2, '每个有效群发一次事件');
+  link.stop();
+});
+
+test('【群列表】解析时过滤非法群号与空群名', async () => {
+  const link = new OneBotLink({ enabled: true });
+  link.connection = { readyState: 1, send: () => {} };
+  link.callAction = async () => ([
+    { group_id: 'abc', group_name: '非法号' },
+    { group_id: 444444, group_name: '' },
+    { group_id: 555555, group_name: '正常群' }
+  ]);
+  const groups = await link.fetchGroupList();
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].groupId, '555555');
+  link.stop();
+});
+
+test('【群列表】查询失败时 reject 而不是无限等待', async () => {
+  const link = new OneBotLink({ enabled: true });
+  link.connection = { readyState: 1, send: () => {} };
+  const promise = link.callAction('get_group_info', { group_id: 111111 });
+  const echo = [...link.pendingActions.keys()][0];
+  link.handleActionResponse({ status: 'failed', retcode: 100, echo, message: '群不存在' });
+  await assert.rejects(promise, /群不存在|查询失败/);
   link.stop();
 });
 

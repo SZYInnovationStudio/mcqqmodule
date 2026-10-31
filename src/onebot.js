@@ -133,6 +133,11 @@ export class OneBotLink extends EventEmitter {
     this.reconnectDelay = RECONNECT_BASE_MS;
     this.stopped = true;
     this.seenMessages = new Map();
+    /** 已发出、等待响应的只读查询 */
+    this.pendingActions = new Map();
+    this.actionSeq = 0;
+    /** 连接后是否已经拉过群列表 */
+    this.groupListFetched = false;
   }
 
   /** 判断一次 Reverse 连接带不带合法 token */
@@ -170,6 +175,23 @@ export class OneBotLink extends EventEmitter {
     if ('forwardUrl' in next) this.forwardUrl = String(next.forwardUrl ?? '');
     if ('enabled' in next) this.enabled = next.enabled === true;
     this.start();
+  }
+
+  /** 连接就绪后的初始化：拉登录信息与群列表，群名主要靠这里拿到 */
+  onConnected() {
+    if (this.stopped) return;
+    this.groupListFetched = false;
+    void (async () => {
+      try {
+        const login = await this.callAction('get_login_info');
+        if (login?.nickname) this.nickname = String(login.nickname).slice(0, 48);
+        if (login?.user_id) this.selfId = String(login.user_id);
+      } catch { /* 拿不到昵称不影响主流程 */ }
+      const groups = await this.fetchGroupList();
+      this.groupListFetched = groups.length > 0;
+      if (groups.length) this.log(`已从监听 Bot 获取 ${groups.length} 个群的名称`);
+      this.emit('status', this.status);
+    })();
   }
 
   setStatus(status) {
@@ -214,11 +236,14 @@ export class OneBotLink extends EventEmitter {
       if (this.connection !== ws) return;
       this.setStatus('已连接');
       this.reconnectDelay = RECONNECT_BASE_MS;
+      this.onConnected();
     });
     // 反向连接建立即视为就绪
     if (mode === 'reverse') {
       this.setStatus('已连接');
       this.reconnectDelay = RECONNECT_BASE_MS;
+      // 反向连接时外挂 Bot 已经就绪，直接拉群列表
+      setTimeout(() => { if (this.connection === ws) this.onConnected(); }, 200);
     }
     ws.on('message', data => {
       if (this.connection !== ws) return;
@@ -265,6 +290,12 @@ export class OneBotLink extends EventEmitter {
     if (selfId && selfId !== this.selfId) {
       this.selfId = selfId;
       this.emit('status', this.status);
+    }
+
+    // 收到 Action 响应（我们主动查询的返回值，例如群信息）
+    if ('retcode' in payload || (payload.status === 'ok' && 'data' in payload) || payload.post_type === undefined && 'echo' in payload) {
+      this.handleActionResponse(payload);
+      return;
     }
 
     // 群名称更新
@@ -327,6 +358,94 @@ export class OneBotLink extends EventEmitter {
     this.eventCount += 1;
     this.recentEvents.unshift({ at: new Date().toISOString(), ...event });
     if (this.recentEvents.length > MAX_BUFFERED_EVENTS) this.recentEvents.length = MAX_BUFFERED_EVENTS;
+  }
+
+  /* ------------------------- Action 请求（只读查询） ------------------------- */
+
+  /**
+   * 发起一个只读查询。注意：这里【只允许查询类 action】，
+   * send_* 等发送类动作一律拒绝，遵守「监听 Bot 只收不发」的硬约束。
+   */
+  callAction(action, params = {}) {
+    const READONLY = new Set([
+      'get_group_info',
+      'get_group_list',
+      'get_group_member_info',
+      'get_group_member_list',
+      'get_login_info',
+      'get_stranger_info'
+    ]);
+    if (!READONLY.has(action)) {
+      throw new Error(`OneBot 监听 Bot 只允许只读查询，拒绝执行 ${action}`);
+    }
+    const ws = this.connection;
+    if (!ws || ws.readyState !== WS_OPEN) return Promise.reject(new Error('OneBot 未连接'));
+    const echo = `dsh-${action}-${++this.actionSeq}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingActions.delete(echo);
+        reject(new Error(`OneBot 查询超时：${action}`));
+      }, 8000);
+      this.pendingActions.set(echo, { resolve, reject, timer });
+      try {
+        ws.send(JSON.stringify({ action, params, echo }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pendingActions.delete(echo);
+        reject(error);
+      }
+    });
+  }
+
+  handleActionResponse(payload) {
+    const echo = payload.echo;
+    if (!echo) return;
+    const pending = this.pendingActions.get(echo);
+    if (!pending) return;
+    this.pendingActions.delete(echo);
+    clearTimeout(pending.timer);
+    if (payload.retcode !== 0 || payload.status === 'failed') {
+      pending.reject(new Error(`OneBot 查询失败：${payload.message ?? payload.wording ?? payload.retcode}`));
+      return;
+    }
+    pending.resolve(payload.data);
+  }
+
+  /**
+   * 主动拉取群信息。列表里会带群名称，用它补全「群号 → 群名」的映射。
+   * 这是群名称的主要来源：只依赖 group_name 事件的话，平时根本收不到。
+   */
+  async fetchGroupList() {
+    try {
+      const list = await this.callAction('get_group_list');
+      if (!Array.isArray(list)) return [];
+      const groups = [];
+      for (const item of list) {
+        const groupId = String(item?.group_id ?? '');
+        const name = typeof item?.group_name === 'string' ? item.group_name.trim().slice(0, 48) : '';
+        if (!/^\d{5,20}$/.test(groupId) || !name) continue;
+        groups.push({ groupId, name });
+        this.emit('meta', { kind: 'group-name', groupId, name });
+      }
+      return groups;
+    } catch (error) {
+      this.log(`拉取群列表失败：${error.message}`);
+      return [];
+    }
+  }
+
+  /** 拉取单个群的详情（群名等） */
+  async fetchGroupInfo(groupId) {
+    try {
+      const info = await this.callAction('get_group_info', { group_id: Number(groupId), no_cache: true });
+      const name = typeof info?.group_name === 'string' ? info.group_name.trim().slice(0, 48) : '';
+      if (!name) return null;
+      this.emit('meta', { kind: 'group-name', groupId: String(groupId), name });
+      return name;
+    } catch (error) {
+      this.log(`查询群 ${groupId} 信息失败：${error.message}`);
+      return null;
+    }
   }
 
   getStatus() {

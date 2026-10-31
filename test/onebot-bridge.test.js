@@ -333,3 +333,43 @@ test('【学习时机】/qqbind 不带参数且未识别时给出可操作提示
   assert.match(reply, /监听 Bot 还没识别到/);
   assert.match(reply, /发一句话/);
 });
+
+/* ---------------- 优先监听源：群名与显示名都要用 OneBot 的 ---------------- */
+
+test('【优先监听】群名来自监听 Bot，而不是兜底的「QQ群」', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '我的测试群' });
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '我的测试群');
+});
+
+test('【优先监听】多个群时不会张冠李戴', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '111', name: '群一' });
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '222', name: '群二' });
+  // 还没建立 openid→群号 对应时，多个群不能乱猜
+  assert.equal(bridge.realGroupNameFor('group_openid_unknown'), '');
+  bridge.openidGroupToReal.set('group_openid_unknown', '222');
+  assert.equal(bridge.realGroupNameFor('group_openid_unknown'), '群二');
+});
+
+test('【优先监听】显示名优先用监听源的群名片', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '你好', displayName: '张三（群名片）', nickname: '张小三' }));
+  const name = bridge.displayNameFromOneBot('openid_user_1', '张小三');
+  assert.equal(name, '张三（群名片）');
+});
+
+test('【优先监听】手工配置的群名映射优先级最高', () => {
+  const { bridge } = makeBridge({ groupNames: 'group_openid_aaaa=手工群名' });
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '监听到的群名' });
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '手工群名');
+});
+
+test('【优先监听】关闭 OneBot 时不使用监听源的名字', () => {
+  const { bridge } = makeBridge({ onebotEnabled: false });
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '不该生效' });
+  assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '');
+  assert.equal(bridge.displayNameFromOneBot('openid_user_1', '官方昵称'), '');
+});
