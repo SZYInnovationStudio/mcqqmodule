@@ -39,6 +39,8 @@ const INCLUDED = [
   'COMMANDS.md',
   'MODULE-SPEC.md',
   'DEPLOY.md',
+  'CHANGELOG.md',
+  'REVISIONS.md',
   'LICENSE',
   'Dockerfile',
   '.dockerignore',
