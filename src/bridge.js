@@ -436,15 +436,77 @@ export class Bridge {
     const configured = parseNameMap(this.store.config.groupNames, '群名称映射').get(groupOpenid);
     if (configured) return configured;
     if (!this.isOneBotActive()) return '';
-    // 已经学过「群 OpenID → 真实群号」就直接查
+
+    // ① 已经确定「群 OpenID → 真实群号」，直接查名字
     const realId = this.openidGroupToReal.get(groupOpenid);
     if (realId) {
       const name = this.groupNamesByRealId.get(realId);
       if (name) return name;
     }
-    // 还没学过关系统时，若只监听到一个群，可以直接用它的名字
+
+    // ② 没确定群号时，用「最近发言者的显示名」去各群成员名单里撞，
+    //    撞上就说明这个 OpenID 属于那个群。多群环境下比「只有一个群」靠谱。
+    const inferred = this.inferGroupIdByMember(groupOpenid);
+    if (inferred) {
+      const name = this.groupNamesByRealId.get(inferred);
+      if (name) return name;
+    }
+
+    // ③ 兜底：只监听到一个群时直接用它的名字
     const names = [...new Set(this.groupNamesByRealId.values())];
     return names.length === 1 ? names[0] : '';
+  }
+
+  /**
+   * 用群成员名单反推「群 OpenID → 真实群号」。
+   *
+   * 思路：官方 Bot 报的发送者显示名，和某个群的成员名单能对上，
+   * 就认为这个群 OpenID 属于那个真实群号。命中后固定下来，不再重复推断。
+   */
+  inferGroupIdByMember(groupOpenid) {
+    const cutoff = Date.now() - this.relayDedupWindowMs;
+    for (const [realGroupId, index] of this.membersByGroupId) {
+      // 这个群若已归属别的群 OpenID，跳过，避免张冠李戴
+      const owner = this.realGroupToOpenid.get(realGroupId);
+      if (owner && owner !== groupOpenid) continue;
+      // 用该群最近上报的显示名去撞成员名单
+      const names = this.recentOneBotMessages
+        .filter(item => item.at >= cutoff && item.groupId === realGroupId)
+        .map(item => item.displayName);
+      if (names.some(name => index.byCard.has(name) || index.byNick.has(name))) {
+        this.openidGroupToReal.set(groupOpenid, realGroupId);
+        this.realGroupToOpenid.set(realGroupId, groupOpenid);
+        this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 由成员重合推断为真实群号 ${realGroupId}`);
+        return realGroupId;
+      }
+    }
+    return '';
+  }
+
+  /**
+   * 用「发送者的真实 QQ 号」反推群号。
+   *
+   * 比按显示名更准：一旦知道了这个人的 QQ，去看他出现在哪个群的成员名单里，
+   * 那个群就是这个 OpenID 对应的真实群。
+   */
+  linkGroupByMemberQQ(groupOpenid, realQQ) {
+    // 关闭 OneBot 时不参与任何推断，保持旧版行为
+    if (!this.isOneBotActive()) return '';
+    if (!groupOpenid || !realQQ) return '';
+    // 已经确定就不重复推断
+    if (this.openidGroupToReal.has(groupOpenid)) return this.openidGroupToReal.get(groupOpenid);
+    for (const [realGroupId, index] of this.membersByGroupId) {
+      const owner = this.realGroupToOpenid.get(realGroupId);
+      if (owner && owner !== groupOpenid) continue;
+      const member = index.members.find(m => m.userId === String(realQQ));
+      if (member) {
+        this.openidGroupToReal.set(groupOpenid, realGroupId);
+        this.realGroupToOpenid.set(realGroupId, groupOpenid);
+        this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 由成员 QQ ${realQQ} 反推为真实群号 ${realGroupId}`);
+        return realGroupId;
+      }
+    }
+    return '';
   }
 
   start() {
@@ -784,11 +846,15 @@ export class Bridge {
         }
         // 解析这个人的真实 QQ 号：走缓存、登记、成员名单，不打 RCON
         const userQQ = this.resolveQQForOpenid(openid, group, sentDisplayName);
+        // 拿到 QQ 后立刻反推群号，这样群名一次就能定下来
+        if (userQQ) this.linkGroupByMemberQQ(group, userQQ);
+        // 群名要放在反推之后再取，否则第一次仍然显示「QQ群」
+        const resolvedGroupName = groupMap.get(group) || this.realGroupNameFor(group) || 'QQ群';
         const components = makeQqComponents(resolveQqToMcTemplate(this.store.config.qqToMcTemplate), {
           userName,
           message,
           groupId: group,
-          groupName,
+          groupName: resolvedGroupName,
           qq: userQQ
         });
         if (components) this.pluginExchange.enqueue(components);

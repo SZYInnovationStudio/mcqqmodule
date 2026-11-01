@@ -521,6 +521,7 @@ test('【持久化】非法 QQ 号或非法 OpenID 不会被记住', async () =>
   try {
     const store = new Storage(dir);
     store.rememberRealQQ('openid_ok', 'abc');
+    store.rememberBad?.('x');
     store.rememberRealQQ('bad openid!', '123456789');
     store.rememberRealQQ('__proto__', '123456789');
     assert.equal(store.listRealQQ().length, 0, '脏数据不应被记住');
@@ -528,4 +529,59 @@ test('【持久化】非法 QQ 号或非法 OpenID 不会被记住', async () =>
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/* ---------------- 群名：不再靠消息内容碰运气 ---------------- */
+
+test('【群名】用成员 QQ 号反推群号，一次就能定下来', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '=SZYD MC | 1.21.11更新=' });
+  bridge.handleGroupMembers({
+    groupId: '987654321',
+    members: [{ userId: '3628385871', card: 'Beibing', nickname: 'Beibing' }]
+  });
+  // 已知这个 OpenID 的真实 QQ 是 3628385871，反推他属于哪个群
+  const realGroup = bridge.linkGroupByMemberQQ('group_openid_aaaa', '3628385871');
+  assert.equal(realGroup, '987654321');
+  assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '=SZYD MC | 1.21.11更新=');
+});
+
+test('【群名】多群时按成员归属精确匹配，不会张冠李戴', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '111111111', name: '一号群' });
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '222222222', name: '二号群' });
+  bridge.handleGroupMembers({ groupId: '111111111', members: [{ userId: '100000001', card: '甲', nickname: '甲' }] });
+  bridge.handleGroupMembers({ groupId: '222222222', members: [{ userId: '200000002', card: '乙', nickname: '乙' }] });
+
+  // 乙属于二号群
+  assert.equal(bridge.linkGroupByMemberQQ('group_openid_bbbb', '200000002'), '222222222');
+  assert.equal(bridge.realGroupNameFor('group_openid_bbbb'), '二号群');
+  // 不会错配成一号群
+  assert.notEqual(bridge.realGroupNameFor('group_openid_bbbb'), '一号群');
+});
+
+test('【群名】用显示名撞成员名单也能推断群号', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '我的群' });
+  bridge.handleGroupMembers({
+    groupId: '987654321',
+    members: [{ userId: '3628385871', card: '群名片甲', nickname: '昵称甲' }]
+  });
+  // 监听 Bot 收到了这个人的消息（显示名能对上成员名单）
+  bridge.handleOneBotGroupMessage({
+    groupId: '987654321', userId: '3628385871', text: '你好',
+    displayName: '群名片甲', nickname: '昵称甲'
+  });
+  // 官方 Bot 侧还没确定群号，靠显示名撞
+  const inferred = bridge.inferGroupIdByMember('group_openid_aaaa');
+  assert.equal(inferred, '987654321');
+  assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '我的群');
+});
+
+test('【群名】关闭 OneBot 时推断不生效', () => {
+  const { bridge } = makeBridge({ onebotEnabled: false });
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '不该生效' });
+  bridge.handleGroupMembers({ groupId: '987654321', members: [{ userId: '3628385871', card: 'Beibing' }] });
+  assert.equal(bridge.linkGroupByMemberQQ('group_openid_aaaa', '3628385871'), '');
+  assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '');
 });
