@@ -89,6 +89,16 @@ export class Bridge {
     this.openidToRealQQ = new Map();
     /** OpenID → 监听 Bot 报告的最新显示名（群名片优先） */
     this.displayNamesByOpenid = new Map();
+    /** 真实群号 → 成员名单索引 { byCard, byNick, members } */
+    this.membersByGroupId = new Map();
+    /** 群 OpenID → 成员名单索引 */
+    this.memberIndexByGroupOpenid = new Map();
+    // 回填持久化的关联：重启后不用重新「碰运气」学习
+    try {
+      for (const { openid, qq } of this.store.listRealQQ?.() ?? []) {
+        this.openidToRealQQ.set(openid, qq);
+      }
+    } catch { /* 老数据没有该字段时忽略 */ }
     /** 群 OpenID → 真实群号 */
     this.openidGroupToReal = new Map();
     /** 真实群号 → 群 OpenID */
@@ -127,7 +137,59 @@ export class Bridge {
       try { this.handleOneBotMeta(event); }
       catch (error) { this.store.audit('onebot-error', error.message); }
     });
+    // 群成员名单：群名片 + 真实 QQ 号的可靠来源
+    this.onebot.on('members', event => {
+      try { this.handleGroupMembers(event); }
+      catch (error) { this.store.audit('onebot-error', error.message); }
+    });
     this.onebot.on('status', status => this.store.audit('onebot-status', `OneBot 监听状态：${status}`));
+  }
+
+  /**
+   * 收到群成员名单后建立「显示名 → 真实 QQ」索引。
+   * 这是解决「明明绑定了却显示不出来」的关键：
+   * 不再依赖消息内容碰运气匹配，而是主动拿到全群成员对应关系。
+   */
+  handleGroupMembers(event) {
+    const groupId = String(event?.groupId ?? '');
+    if (!/^\d{5,20}$/.test(groupId) || !Array.isArray(event?.members)) return;
+    const index = { byCard: new Map(), byNick: new Map(), members: [] };
+    for (const item of event.members) {
+      const userId = String(item?.userId ?? '');
+      if (!/^\d{5,20}$/.test(userId)) continue;
+      const card = String(item?.card ?? '').slice(0, 48);
+      const nickname = String(item?.nickname ?? '').slice(0, 48);
+      index.members.push({ userId, card, nickname });
+      if (card) index.byCard.set(card, userId);
+      if (nickname) index.byNick.set(nickname, userId);
+    }
+    this.membersByGroupId.set(groupId, index);
+    // 立刻用名单回填所有已学到的群，让显示名与 QQ 号一次到位
+    this.applyMemberIndexToLearned();
+    this.store.audit('onebot-members', `群 ${groupId} 成员名单已更新：${index.members.length} 人`);
+  }
+
+  /** 用成员名单回填已知的「群 OpenID → 真实群号」对应 */
+  applyMemberIndexToLearned() {
+    for (const [groupOpenid, realGroupId] of this.openidGroupToReal) {
+      const index = this.membersByGroupId.get(realGroupId);
+      if (index) this.memberIndexByGroupOpenid.set(groupOpenid, index);
+    }
+  }
+
+  /**
+   * 按显示名反查真实 QQ 号。
+   * 依次尝试：群名片 → 昵称。查不到返回空。
+   */
+  realQQByDisplayName(groupOpenid, displayName) {
+    if (!this.isOneBotActive()) return '';
+    const name = String(displayName ?? '').trim();
+    if (!name) return '';
+    const index = this.memberIndexByGroupOpenid.get(groupOpenid);
+    if (index) {
+      return index.byCard.get(name) ?? index.byNick.get(name) ?? '';
+    }
+    return '';
   }
 
   /** 记录 OneBot 拿到的真实 QQ 号，供绑定时自动取用 */
@@ -217,12 +279,24 @@ export class Bridge {
     }
     // OpenID → 真实 QQ
     if (this.openidToRealQQ.get(openid) !== hit.userId) {
-      this.openidToRealQQ.set(openid, hit.userId);
+      this.linkRealQQ(openid, hit.userId);
       this.store.audit('onebot-link', `OpenID ${openid} 关联到真实 QQ ${hit.userId}（依据群消息内容与时间窗）`);
     }
     // 顺带记下监听源看到的显示名，聊天时优先使用
     this.rememberDisplayName(openid, hit.displayName);
     return hit.userId;
+  }
+
+  /**
+   * 记住 OpenID → 真实 QQ 的关联，同时写进持久化存储。
+   * 只在内存里记的话，重启就全丢，用户又会看到「未绑定」。
+   */
+  linkRealQQ(openid, qq) {
+    if (!openid || !qq) return;
+    const value = String(qq);
+    if (this.openidToRealQQ.get(openid) === value) return;
+    this.openidToRealQQ.set(openid, value);
+    try { this.store.rememberRealQQ?.(openid, value); } catch { /* 持久化失败不影响本次会话 */ }
   }
 
   /** 取某个 OpenID 已知的真实 QQ 号（可能为空） */
@@ -250,6 +324,36 @@ export class Bridge {
     const hit = this.recentOneBotMessages.find(item => item.at >= cutoff &&
       (item.displayName === officialName || item.nickname === officialName));
     return hit?.displayName ?? '';
+  }
+
+  /**
+   * 解析官方 Bot 侧某人的真实 QQ 号，三级兜底：
+   *   1. 已学到的 OpenID → QQ 映射
+   *   2. 用户登记里的 QQ 号（/qqbind 填的）
+   *   3. 群成员名单按显示名反查（群名片 → 昵称）
+   *
+   * 注意这里【不主动打 RCON】：群聊是高频事件，每条都查一次会把 RCON 打爆。
+   * 群成员名单已经把全群 QQ 号拉好了，够用；真查不到就显示「未绑定」，
+   * 由 AQQBot 快照同步或用户 /qqbind 补齐。
+   */
+  resolveQQForOpenid(openid, groupOpenid, displayName) {
+    // 1. 已学到
+    const learned = this.realQQForOpenid(openid);
+    if (learned) return learned;
+
+    // 2. 用户登记
+    const registered = this.store.state.users?.[openid]?.qq;
+    if (registered) return String(registered);
+
+    // 3. 群成员名单反查（群名片 → 昵称）
+    const fromMembers = this.realQQByDisplayName(groupOpenid, displayName);
+    if (fromMembers) {
+      this.linkRealQQ(openid, fromMembers);
+      this.store.audit('onebot-link', `OpenID ${openid} 经群成员名单关联到 QQ ${fromMembers}（显示名 ${displayName}）`);
+      return fromMembers;
+    }
+
+    return '';
   }
 
   /** 取某个群 OpenID 对应的真实群号（可能为空） */
@@ -678,7 +782,15 @@ export class Bridge {
           this.store.audit('qq-to-mc-dedup', `群 ${group}：同一条消息已由监听 Bot 转发，跳过官方 Bot 副本`);
           return;
         }
-        const components = makeQqComponents(resolveQqToMcTemplate(this.store.config.qqToMcTemplate), { userName, message, groupId: group, groupName });
+        // 解析这个人的真实 QQ 号：走缓存、登记、成员名单，不打 RCON
+        const userQQ = this.resolveQQForOpenid(openid, group, sentDisplayName);
+        const components = makeQqComponents(resolveQqToMcTemplate(this.store.config.qqToMcTemplate), {
+          userName,
+          message,
+          groupId: group,
+          groupName,
+          qq: userQQ
+        });
         if (components) this.pluginExchange.enqueue(components);
       } catch (error) { this.store.audit('qq-to-mc-error', `群 ${group}：${error.message}`); }
       return;

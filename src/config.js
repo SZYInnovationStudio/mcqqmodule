@@ -1,8 +1,15 @@
 import { parseNameMap, validateQqTemplate } from './qq-chat.js';
 
-export const DEFAULT_QQ_TO_MC_TEMPLATE = '&a[${groupName}]&r ${userName}：${message}';
+// 默认带上群昵称与 QQ 号，让游戏里的人能对上「这是谁」
+// QQ 号用括号包起来，避免和昵称首尾相连（昵称「7891」+ QQ「123456789」会粘成一串）
+export const DEFAULT_QQ_TO_MC_TEMPLATE = '&a[${groupName}]&r ${userName}${qqOrEmpty}: ${message}';
 const OLD_QQ_TO_MC_TEMPLATE = '&a[QQ群]&r ${userName}: ${message}';
-export const resolveQqToMcTemplate = value => !value || value === OLD_QQ_TO_MC_TEMPLATE ? DEFAULT_QQ_TO_MC_TEMPLATE : value;
+// 上一版默认模板：不含 QQ 号，升级时自动迁移
+const PREV_QQ_TO_MC_TEMPLATE = '&a[${groupName}]&r ${userName}：${message}';
+export const resolveQqToMcTemplate = value =>
+  !value || value === OLD_QQ_TO_MC_TEMPLATE || value === PREV_QQ_TO_MC_TEMPLATE
+    ? DEFAULT_QQ_TO_MC_TEMPLATE
+    : value;
 // 默认带上 QQ 号，让群友能对上「游戏里这个人是谁」
 export const DEFAULT_MC_TO_QQ_TEMPLATE = '[服务器] ${player}（QQ ${qq}）: ${message}';
 // 旧默认模板：升级时自动迁移到新默认，用户自定义的不动

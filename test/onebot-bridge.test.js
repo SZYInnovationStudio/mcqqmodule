@@ -421,3 +421,111 @@ test('【回声过滤】正常群友发言不受影响', () => {
   bridge.handleOneBotGroupMessage(oneBotMessage({ text: '这是群友说的话' }));
   assert.equal(bridge.realQQFor('987654321', '123456789'), '123456789', '正常发言仍应被记录');
 });
+
+/* ---------------- 群成员名单：不再靠碰运气 ---------------- */
+
+const membersEvent = (groupId = '987654321') => ({
+  groupId,
+  members: [
+    { userId: '111111111', card: '张三（群名片）', nickname: '张小三' },
+    { userId: '222222222', card: '', nickname: '只有昵称' },
+    { userId: '333333333', card: '李四', nickname: '李四' }
+  ]
+});
+
+test('【成员名单】建立「群名片 → 真实 QQ」索引', () => {
+  const { bridge } = makeBridge();
+  bridge.handleGroupMembers(membersEvent());
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  bridge.applyMemberIndexToLearned();
+
+  assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '张三（群名片）'), '111111111');
+  assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '只有昵称'), '222222222', '没有群名片时回退到昵称');
+  assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '不存在的人'), '');
+});
+
+test('【成员名单】常见词也能查到，不再因候选不唯一而学不到', () => {
+  const { bridge } = makeBridge();
+  bridge.handleGroupMembers(membersEvent());
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  bridge.applyMemberIndexToLearned();
+  const qq = bridge.resolveQQForOpenid('openid_new', 'group_openid_aaaa', '张三（群名片）');
+  assert.equal(qq, '111111111');
+  assert.equal(bridge.realQQForOpenid('openid_new'), '111111111', '应记住这次关联');
+});
+
+test('【成员名单】用户已登记时优先用登记值', () => {
+  const { bridge, users } = makeBridge();
+  users.openid_user_1 = { qq: '999999999' };
+  bridge.handleGroupMembers(membersEvent());
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  bridge.applyMemberIndexToLearned();
+  const qq = bridge.resolveQQForOpenid('openid_user_1', 'group_openid_aaaa', '张三（群名片）');
+  assert.equal(qq, '999999999', '登记值优先级高于成员名单');
+});
+
+test('【成员名单】关闭 OneBot 时不使用成员名单', () => {
+  const { bridge } = makeBridge({ onebotEnabled: false });
+  bridge.handleGroupMembers(membersEvent());
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  bridge.applyMemberIndexToLearned();
+  assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '张三（群名片）'), '');
+});
+
+test('【成员名单】非法群号或非法成员被过滤', () => {
+  const { bridge } = makeBridge();
+  bridge.handleGroupMembers({ groupId: 'abc', members: [] });
+  assert.equal(bridge.membersByGroupId.size, 0, '非法群号应被忽略');
+
+  bridge.handleGroupMembers({
+    groupId: '987654321',
+    members: [{ userId: 'abc', card: '坏数据' }, { userId: '444444444', card: '好人' }]
+  });
+  const index = bridge.membersByGroupId.get('987654321');
+  assert.equal(index.members.length, 1, '非法用户 ID 应被过滤');
+  assert.equal(index.byCard.get('好人'), '444444444');
+});
+
+/* ---------------- 关联必须持久化，重启不能丢 ---------------- */
+
+test('【持久化】OpenID↔QQ 关联写进 Storage，重启后仍在', async () => {
+  const { Storage } = await import('../src/storage.js');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-persist-'));
+  try {
+    // 第一次：建立关联
+    const store1 = new Storage(dir);
+    store1.config = { ...store1.config, onebotEnabled: true };
+    const bridge1 = new Bridge(store1, { onebot: new OneBotLink({ enabled: false }) });
+    bridge1.linkRealQQ('openid_persist', '3628385871');
+    assert.equal(store1.getRealQQ('openid_persist'), '3628385871', '应写入持久化');
+
+    // 第二次：新建实例（模拟重启），关联应自动回填
+    const store2 = new Storage(dir);
+    store2.config = { ...store2.config, onebotEnabled: true };
+    const bridge2 = new Bridge(store2, { onebot: new OneBotLink({ enabled: false }) });
+    assert.equal(bridge2.realQQForOpenid('openid_persist'), '3628385871', '重启后关联不应丢失');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('【持久化】非法 QQ 号或非法 OpenID 不会被记住', async () => {
+  const { Storage } = await import('../src/storage.js');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-persist2-'));
+  try {
+    const store = new Storage(dir);
+    store.rememberRealQQ('openid_ok', 'abc');
+    store.rememberRealQQ('bad openid!', '123456789');
+    store.rememberRealQQ('__proto__', '123456789');
+    assert.equal(store.listRealQQ().length, 0, '脏数据不应被记住');
+    assert.equal(store.getRealQQ('openid_ok'), '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

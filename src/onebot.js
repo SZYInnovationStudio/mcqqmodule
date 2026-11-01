@@ -177,7 +177,63 @@ export class OneBotLink extends EventEmitter {
     this.start();
   }
 
-  /** 连接就绪后的初始化：拉登录信息与群列表，群名主要靠这里拿到 */
+  /**
+   * 主动拉取群成员列表，拿到「真实 QQ 号 + 群名片」的完整对应。
+   *
+   * 这是群昵称与真实 QQ 号的可靠来源：靠消息内容「碰运气」匹配成功率很低
+   * （群友发「1」「哈哈」这类常见词时候选不唯一，永远学不到），
+   * 主动拉一次成员列表就能覆盖全群。
+   *
+   * 返回 Map：群名片或昵称 → { userId, card, nickname }
+   */
+  async fetchGroupMembers(groupId) {
+    try {
+      const list = await this.callAction('get_group_member_list', { group_id: Number(groupId) });
+      if (!Array.isArray(list)) return { members: [], byCard: new Map(), byNick: new Map() };
+      const members = [];
+      const byCard = new Map();
+      const byNick = new Map();
+      for (const item of list) {
+        const userId = String(item?.user_id ?? '');
+        if (!/^\d{5,20}$/.test(userId)) continue;
+        const card = typeof item?.card === 'string' ? item.card.trim().slice(0, 48) : '';
+        const nickname = typeof item?.nickname === 'string' ? item.nickname.trim().slice(0, 48) : '';
+        const member = { userId, card, nickname };
+        members.push(member);
+        if (card) byCard.set(card, member);
+        if (nickname) byNick.set(nickname, member);
+      }
+      this.emit('members', { groupId: String(groupId), members });
+      this.log(`已从监听 Bot 获取群 ${groupId} 的 ${members.length} 个成员`);
+      return { members, byCard, byNick };
+    } catch (error) {
+      this.log(`拉取群 ${groupId} 成员列表失败：${error.message}`);
+      return { members: [], byCard: new Map(), byNick: new Map() };
+    }
+  }
+
+  /**
+   * 查单个群成员的详情（成员列表太大或没权限时的兜底）。
+   */
+  async fetchGroupMember(groupId, userId) {
+    try {
+      const info = await this.callAction('get_group_member_info', {
+        group_id: Number(groupId),
+        user_id: Number(userId),
+        no_cache: false
+      });
+      if (!info) return null;
+      const card = typeof info.card === 'string' ? info.card.trim().slice(0, 48) : '';
+      const nickname = typeof info.nickname === 'string' ? info.nickname.trim().slice(0, 48) : '';
+      if (!card && !nickname) return null;
+      return { userId: String(userId), card, nickname };
+    } catch (error) {
+      this.log(`查询群成员 ${userId} 失败：${error.message}`);
+      return null;
+    }
+  }
+
+  /** 连接就绪后的初始化：拉登录信息、群列表，并预取成员名单 */
   onConnected() {
     if (this.stopped) return;
     this.groupListFetched = false;
@@ -190,6 +246,10 @@ export class OneBotLink extends EventEmitter {
       const groups = await this.fetchGroupList();
       this.groupListFetched = groups.length > 0;
       if (groups.length) this.log(`已从监听 Bot 获取 ${groups.length} 个群的名称`);
+      // 预取各群成员名单：群昵称与真实 QQ 号的可靠来源
+      for (const group of groups.slice(0, 20)) {
+        await this.fetchGroupMembers(group.groupId);
+      }
       this.emit('status', this.status);
     })();
   }

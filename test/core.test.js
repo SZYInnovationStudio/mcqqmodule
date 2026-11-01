@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Storage } from '../src/storage.js';
-import { validateConfig, publicConfig } from '../src/config.js';
+import { validateConfig, publicConfig, DEFAULT_QQ_TO_MC_TEMPLATE } from '../src/config.js';
 import { Bridge } from '../src/bridge.js';
 import { rconCommand } from '../src/rcon.js';
 import { queryMotd } from '../src/motd.js';
@@ -55,7 +55,7 @@ test('QQ 群聊只进入独立插件队列；去重并忽略未知命令', async
     assert.deepEqual(calls, []);
     const queued = bridge.exchangePluginChat({ ack: 0, sent: [] }).receive;
     assert.equal(queued.length, 1);
-    assert.deepEqual(queued[0].components, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称：你好' }]);
+    assert.deepEqual(queued[0].components, [{ text: '[QQ群]', color: 'green' }, { text: ' 群昵称: 你好' }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -85,11 +85,11 @@ test('群名称与成员名按 OpenID 映射，旧模板自动升级', async () 
     const bridge = new Bridge(store, { rcon: async () => { throw new Error('聊天不能调用 RCON'); } });
     await bridge.handleEvent({ kind: 'group', groupOpenid: 'GROUP_OPENID_123', senderId: 'USER_OPENID_123', senderName: 'Beibing', replyTarget: { scope: 'group', targetId: 'GROUP_OPENID_123' }, content: '进服测试' });
     const queued = bridge.exchangePluginChat({ ack: 0, sent: [] }).receive;
-    assert.deepEqual(queued[0].components, [{ text: '[生存群]', color: 'green' }, { text: ' AAA钻石批发：进服测试' }]);
+    assert.deepEqual(queued[0].components, [{ text: '[生存群]', color: 'green' }, { text: ' AAA钻石批发: 进服测试' }]);
     assert.equal(parseNameMap('GROUP_OPENID_123=生存群').get('GROUP_OPENID_123'), '生存群');
     assert.throws(() => parseNameMap('GROUP_OPENID_123=一\nGROUP_OPENID_123=二'), /重复/);
     assert.throws(() => validateConfig({ groupNames: 'bad line' }), /群名称映射格式/);
-    assert.equal(publicConfig({ qqToMcTemplate: '&a[QQ群]&r ${userName}: ${message}' }).qqToMcTemplate, '&a[${groupName}]&r ${userName}：${message}');
+    assert.equal(publicConfig({ qqToMcTemplate: '&a[QQ群]&r ${userName}: ${message}' }).qqToMcTemplate, DEFAULT_QQ_TO_MC_TEMPLATE);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -135,7 +135,7 @@ test('MC → QQ 在有 AQQBot 绑定数据时显示真实 QQ 号', async () => {
 test('插件双向交换去重并等待确认，不依赖 MCSManager 或 RCON 聊天配置', async () => {
   const received = [];
   const exchange = new PluginChatExchange(chat => received.push(chat));
-  exchange.enqueue([{ text: '[QQ群]', color: 'green' }, { text: ' Alice：你好' }]);
+  exchange.enqueue([{ text: '[QQ群]', color: 'green' }, { text: ' Alice: 你好' }]);
   const incoming = { ack: 0, sent: [{ id: 'run12345-1', player: 'Steve', message: 'hello' }] };
   const first = exchange.exchange(incoming);
   assert.equal(first.receive.length, 1);
@@ -164,7 +164,7 @@ test('插件模式 QQ → MC 排队给插件，不调用 RCON', async () => {
     assert.deepEqual(commands, []);
     const received = bridge.exchangePluginChat({ ack: 0, sent: [] }).receive;
     assert.equal(received.length, 1);
-    assert.deepEqual(received[0].components, [{ text: '[QQ群]', color: 'green' }, { text: ' Alice：你好' }]);
+    assert.deepEqual(received[0].components, [{ text: '[QQ群]', color: 'green' }, { text: ' Alice: 你好' }]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

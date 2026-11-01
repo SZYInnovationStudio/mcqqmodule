@@ -30,6 +30,9 @@ export class Storage {
     this.state = readJson(this.stateFile, { version: 8, users: {}, audit: [] });
     this.state.users ??= {};
     this.state.audit ??= [];
+    // OpenID → 真实 QQ 的关联缓存。放在 state 里持久化，
+    // 否则每次重启都要重新「碰运气」学习，表现为「有些人重启后就不显示了」。
+    this.state.realQQ ??= {};
     if (this.state.version !== 8 || 'bindings' in this.state || Object.values(this.state.users).some(user => user.source === 'aqqbot-import')) {
       if (existsSync(this.stateFile)) copyFileSync(this.stateFile, this.stateFile + '.before-v8-' + new Date().toISOString().replace(/[:.]/g, '-'));
       delete this.state.bindings;
@@ -175,6 +178,32 @@ export class Storage {
     if (typeof openid !== 'string' || !Object.hasOwn(this.state.users, openid)) throw new Error('用户尚未登记');
     delete this.state.users[openid];
     this.saveState();
+  }
+
+  /* ------------------ OpenID → 真实 QQ 的持久化关联 ------------------ */
+
+  /** 记住某个 OpenID 对应的真实 QQ 号（供重启后复用） */
+  rememberRealQQ(openid, qq) {
+    if (typeof openid !== 'string' || !/^[A-Za-z0-9_-]{5,128}$/.test(openid)) return;
+    if (openid === '__proto__' || openid === 'constructor') return;
+    if (!/^\d{5,20}$/.test(String(qq ?? ''))) return;
+    if (this.state.realQQ[openid] === qq) return;
+    this.state.realQQ[openid] = String(qq);
+    this.saveState();
+  }
+
+  /** 取某个 OpenID 记住的真实 QQ 号；没有返回空 */
+  getRealQQ(openid) {
+    if (typeof openid !== 'string') return '';
+    const qq = this.state.realQQ?.[openid];
+    return /^\d{5,20}$/.test(String(qq ?? '')) ? String(qq) : '';
+  }
+
+  /** 列出全部已记住的关联，供启动时回填内存 */
+  listRealQQ() {
+    return Object.entries(this.state.realQQ ?? {})
+      .filter(([, qq]) => /^\d{5,20}$/.test(String(qq ?? '')))
+      .map(([openid, qq]) => ({ openid, qq }));
   }
 
   audit(kind, detail) {

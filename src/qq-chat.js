@@ -30,17 +30,22 @@ export function parseNameMap(value, label = '名称映射') {
 
 export function validateQqTemplate(template) {
   if (typeof template !== 'string' || template.length > 300 || /[\r\n\0]/.test(template) || !template.includes('${userName}') || !template.includes('${message}')) throw new Error('QQ → MC 模板需包含 ${userName} 和 ${message}，最多 300 字');
-  if (/\$\{(?!userName\}|message\}|groupId\}|groupName\})[^}]*\}/.test(template)) throw new Error('QQ → MC 模板存在不支持的占位符');
+  if (/\$\{(?!userName\}|message\}|groupId\}|groupName\}|qq\}|qqOrEmpty\})[^}]*\}/.test(template)) throw new Error('QQ → MC 模板存在不支持的占位符，可用 ${userName}、${message}、${groupId}、${groupName}、${qq}');
   return template;
 }
 
 export function makeQqComponents(template, values) {
   validateQqTemplate(template);
+  // QQ 号只允许数字；没有就显示「未绑定」，让游戏里的人知道是谁在说话
+  const rawQq = /^\d{5,20}$/.test(String(values.qq ?? '')) ? String(values.qq) : '';
   const vars = {
     userName: clean(values.userName, 48) || '群友',
     message: clean(values.message, 180),
     groupId: clean(values.groupId, 64),
-    groupName: clean(values.groupName, 48) || 'QQ群'
+    groupName: clean(values.groupName, 48) || 'QQ群',
+    qq: rawQq || '未绑定',
+    // 带括号的形式，避免和昵称首尾相连粘成一串
+    qqOrEmpty: rawQq ? `(${rawQq})` : ''
   };
   if (!vars.message) return null;
   const render = () => {
@@ -53,7 +58,7 @@ export function makeQqComponents(template, values) {
       if (last && JSON.stringify({ ...last, text: '' }) === JSON.stringify({ ...props, text: '' })) last.text += text;
       else extra.push(props);
     };
-    const pattern = /&([0-9a-fA-Fk-oK-OrR])|\$\{(userName|message|groupId|groupName)\}/g;
+    const pattern = /&([0-9a-fA-Fk-oK-OrR])|\$\{(userName|message|groupId|groupName|qq|qqOrEmpty)\}/g;
     let cursor = 0;
     for (const match of template.matchAll(pattern)) {
       append(template.slice(cursor, match.index));
