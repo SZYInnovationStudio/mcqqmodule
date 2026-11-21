@@ -148,15 +148,6 @@ test('已知真实 QQ 但没有 OneBot 时，beginRegistration 仍要求手填',
   assert.match(reply, /格式：\/qqbind/);
 });
 
-test('双源去重在时间窗内生效，窗口外允许再次转发', () => {
-  const { bridge } = makeBridge({}, { relayDedupWindowMs: 50 });
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '重复内容'), false);
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '重复内容'), true);
-  // 窗口过期后可以再次发送
-  for (const [key] of bridge.relayFingerprints) bridge.relayFingerprints.set(key, Date.now() - 1000);
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '重复内容'), false);
-});
-
 test('真实 QQ 记录不会无限增长', () => {
   const { bridge } = makeBridge();
   for (let i = 0; i < 5200; i += 1) {
@@ -212,7 +203,7 @@ test('自动登记在真实 Storage 上端到端跑通', async () => {
 
 /* ---------------- 关闭 OneBot 时必须完整退回旧版方案 ---------------- */
 
-test('【回退】关闭 OneBot 时不学习、不去重、群名只认手工配置', () => {
+test('【回退】关闭 OneBot 时不学习、群名只认手工配置', () => {
   const { bridge, users } = makeBridge({ onebotEnabled: false });
   assert.equal(bridge.isOneBotActive(), false);
 
@@ -222,10 +213,6 @@ test('【回退】关闭 OneBot 时不学习、不去重、群名只认手工配
   // 不学习
   assert.equal(bridge.learnFromOfficial('openid_user_1', 'group_openid_aaaa', '群名片甲', '关闭后不该生效'), null);
   assert.equal(bridge.realQQForOpenid('openid_user_1'), null);
-
-  // 不去重：旧版是每条都转发
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '同一条'), false);
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '同一条'), false);
 
   // 群名只认手工配置
   assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '');
@@ -253,7 +240,6 @@ test('【回退】开启 OneBot 但未传入连接实例时，同样按关闭处
   const { bridge } = makeBridge({}, { onebot: null });
   assert.equal(bridge.isOneBotActive(), false);
   assert.equal(bridge.learnFromOfficial('o1', 'g1', '张三', '消息'), null);
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '消息'), false);
 });
 
 test('【回退】关闭 OneBot 后自动登记与手填流程都回到旧版', () => {
@@ -334,6 +320,14 @@ test('【学习时机】/qqbind 不带参数且未识别时给出可操作提示
   assert.match(reply, /发一句话/);
 });
 
+test('【学习时机】中文别名命令也能学习真实 QQ 号', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '/登记 123456789' }));
+  const learned = bridge.learnFromOfficial('openid_alias', 'group_openid_aaaa', '群名片甲', '/qqbind 123456789');
+  assert.equal(learned, '123456789');
+  assert.equal(bridge.realQQForOpenid('openid_alias'), '123456789');
+});
+
 /* ---------------- 优先监听源：群名与显示名都要用 OneBot 的 ---------------- */
 
 test('【优先监听】群名来自监听 Bot，而不是兜底的「QQ群」', () => {
@@ -372,28 +366,6 @@ test('【优先监听】关闭 OneBot 时不使用监听源的名字', () => {
   bridge.handleOneBotMeta({ kind: 'group-name', groupId: '987654321', name: '不该生效' });
   assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '');
   assert.equal(bridge.displayNameFromOneBot('openid_user_1', '官方昵称'), '');
-});
-
-/* ---------------- 连续相同消息不能被误杀 ---------------- */
-
-test('【不误杀】同一个人连续发两次相同内容，两条都要转发', () => {
-  const { bridge } = makeBridge();
-  // 第一次
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '哈哈哈', 'msg-1'), false);
-  // 第二次内容相同但 messageId 不同，是合法的新消息
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '哈哈哈', 'msg-2'), false);
-});
-
-test('【不误杀】同一条消息（messageId 相同）才会被判重复', () => {
-  const { bridge } = makeBridge();
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容', 'msg-1'), false);
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容', 'msg-1'), true, '同一条消息应判重复');
-});
-
-test('【不误杀】没有 messageId 时退回按内容去重，仍能挡住双源重复', () => {
-  const { bridge } = makeBridge();
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容'), false);
-  assert.equal(bridge.isDuplicateRelay('g1', 'u1', '内容'), true);
 });
 
 /* ---------------- 机器人自己的回声不能污染学习 ---------------- */
@@ -472,6 +444,23 @@ test('【成员名单】关闭 OneBot 时不使用成员名单', () => {
   assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '张三（群名片）'), '');
 });
 
+test('【成员名单】先收名单后确定群号时仍能按显示名反查', () => {
+  const { bridge } = makeBridge();
+  bridge.handleGroupMembers(membersEvent());
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '先有名单' }));
+  bridge.learnFromOfficial('openid_user_1', 'group_openid_aaaa', '群名片甲', '先有名单');
+  assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '张三（群名片）'), '111111111');
+});
+
+test('【成员名单】首次发言且群号未定时也能按显示名反查', () => {
+  const { bridge } = makeBridge();
+  bridge.handleGroupMembers(membersEvent());
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '常见词', displayName: '张三（群名片）', nickname: '张小三' }));
+  const qq = bridge.resolveQQForOpenid('openid_new', 'group_openid_aaaa', '张三（群名片）');
+  assert.equal(qq, '111111111');
+  assert.equal(bridge.realQQForOpenid('openid_new'), '111111111');
+});
+
 test('【成员名单】非法群号或非法成员被过滤', () => {
   const { bridge } = makeBridge();
   bridge.handleGroupMembers({ groupId: 'abc', members: [] });
@@ -484,6 +473,20 @@ test('【成员名单】非法群号或非法成员被过滤', () => {
   const index = bridge.membersByGroupId.get('987654321');
   assert.equal(index.members.length, 1, '非法用户 ID 应被过滤');
   assert.equal(index.byCard.get('好人'), '444444444');
+});
+
+test('【成员名单】重名时宁可不认也不认错', () => {
+  const { bridge } = makeBridge();
+  bridge.handleGroupMembers({
+    groupId: '987654321',
+    members: [
+      { userId: '111111111', card: '同名', nickname: '同名' },
+      { userId: '222222222', card: '同名', nickname: '同名' }
+    ]
+  });
+  bridge.openidGroupToReal.set('group_openid_aaaa', '987654321');
+  bridge.applyMemberIndexToLearned();
+  assert.equal(bridge.realQQByDisplayName('group_openid_aaaa', '同名'), '');
 });
 
 /* ---------------- 关联必须持久化，重启不能丢 ---------------- */
@@ -531,6 +534,17 @@ test('【持久化】非法 QQ 号或非法 OpenID 不会被记住', async () =>
   }
 });
 
+test('【持久化】主动遗忘关联后不再自动登记', () => {
+  const { bridge, users } = makeBridge();
+  bridge.handleOneBotGroupMessage(oneBotMessage({ text: '遗忘前' }));
+  bridge.learnFromOfficial('openid_user_1', 'group_openid_aaaa', '群名片甲', '遗忘前');
+  assert.equal(bridge.realQQForOpenid('openid_user_1'), '123456789');
+  bridge.forgetRealQQ('openid_user_1');
+  assert.equal(bridge.realQQForOpenid('openid_user_1'), null);
+  assert.equal(bridge.autoRegister('openid_user_1', 'group_openid_aaaa'), null);
+  assert.equal(users.openid_user_1, undefined);
+});
+
 /* ---------------- 群名：不再靠消息内容碰运气 ---------------- */
 
 test('【群名】用成员 QQ 号反推群号，一次就能定下来', () => {
@@ -576,6 +590,18 @@ test('【群名】用显示名撞成员名单也能推断群号', () => {
   const inferred = bridge.inferGroupIdByMember('group_openid_aaaa');
   assert.equal(inferred, '987654321');
   assert.equal(bridge.realGroupNameFor('group_openid_aaaa'), '我的群');
+});
+
+test('【群名】同一成员属于多个群时不猜测', () => {
+  const { bridge } = makeBridge();
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '111111111', name: '一号群' });
+  bridge.handleOneBotMeta({ kind: 'group-name', groupId: '222222222', name: '二号群' });
+  bridge.handleGroupMembers({ groupId: '111111111', members: [{ userId: '123456789', card: '甲', nickname: '甲' }] });
+  bridge.handleGroupMembers({ groupId: '222222222', members: [{ userId: '123456789', card: '甲', nickname: '甲' }] });
+  bridge.handleOneBotGroupMessage({ groupId: '111111111', userId: '123456789', text: '一', displayName: '甲', nickname: '甲' });
+  bridge.handleOneBotGroupMessage({ groupId: '222222222', userId: '123456789', text: '二', displayName: '甲', nickname: '甲' });
+  assert.equal(bridge.inferGroupIdByMember('group_openid_aaaa'), '');
+  assert.equal(bridge.linkGroupByMemberQQ('group_openid_aaaa', '123456789'), '');
 });
 
 test('【群名】关闭 OneBot 时推断不生效', () => {

@@ -11,7 +11,7 @@ let busy = false;
 
 function setBusy(value) {
   busy = value;
-  for (const control of document.querySelectorAll('button,input,select')) control.disabled = value;
+  for (const control of $('workspace').querySelectorAll('button,input,select')) control.disabled = value;
 }
 
 function updateSelection() {
@@ -96,10 +96,13 @@ function render() {
     });
     checkCell.append(check);
     const name = document.createElement('td');
+    name.dataset.label = '玩家名';
     name.textContent = player;
     const qq = document.createElement('td');
+    qq.dataset.label = 'QQ 号';
     qq.textContent = current.qq;
     const openid = document.createElement('td');
+    openid.dataset.label = '登记 OpenID';
     openid.textContent = current.openid || '—';
     const actions = document.createElement('td');
     actions.append(

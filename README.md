@@ -1,6 +1,6 @@
 # MC × QQ 管理平台
 
-基于 QQ 官方 Bot、Minecraft RCON 和独立 Bukkit 插件的管理平台。当前服务端版本为 **8.9.9**，聊天插件版本为 **1.1.4**。
+基于 QQ 官方 Bot、Minecraft RCON 和独立 Bukkit 插件的管理平台。当前服务端版本为 **8.9.9**，聊天插件版本为 **1.1.6**。
 
 插件只调用 Bukkit 公共 API，适用于 CraftBukkit、Spigot、Paper、Purpur、Leaves，以及其他完整实现 Bukkit API 的衍生服务端。新版以 Spigot 1.13.2 API 编译，`api-version` 为 `1.13`，字节码目标为 Java 8，可覆盖 Minecraft 1.13 至 1.21.11 的 Bukkit 系服务端；实际 Java 版本仍以所用服务端的要求为准。Fabric、Forge、NeoForge 本身不实现 Bukkit API，不在兼容范围内。
 
@@ -18,9 +18,9 @@
 | 入群 / 退群事件 | ❌ | ✅ |
 | 接收 @ 消息 | ✅ | ✅ |
 
-开启监听 Bot 后，平台用「内容 + 发送者 + 时间窗」把官方 Bot 的 OpenID 与真实 QQ 号对应起来，`/qqbind` 手填和二次确认可以完全跳过；两个 Bot 同时收到的同一条消息会去重，不会在 MC 里刷两遍。
+开启监听 Bot 后，平台用「内容 + 发送者 + 时间窗」把官方 Bot 的 OpenID 与真实 QQ 号对应起来，`/qqbind` 手填和二次确认可以完全跳过；监听 Bot 只参与识别，不转发聊天，MC 里的群聊始终只由官方 Bot 提供，不会重复。
 
-**关闭监听 Bot 时，平台完全退回旧版行为**：不学习、不去重、群名只认手工配置、登记回到 `/qqbind` + 确认码流程。这条回退路径有专门的测试守着。
+**关闭监听 Bot 时，平台完全退回旧版行为**：不学习真实 QQ 号、不使用监听 Bot 的群名和成员名单、登记回到 `/qqbind` + 确认码流程。这条回退路径有专门的测试守着。
 
 接入方式二选一：
 
@@ -37,6 +37,7 @@
 - AQQBot 绑定查询、QQ/OpenID 登记、玩家绑定管理和只读整库查看。
 - `/status`、`/motd`、`/list`、`/tps`、绑定、解绑和每日签到等中英文命令。
 - 管理后台提供连接设置、消息模板、服务器日志、RCON 终端和模块管理。
+- 管理后台使用统一侧栏 / 移动底栏外壳，支持深浅色主题、响应式数据表格和共享模块页面样式。
 - 群命令使用固定白名单，普通群消息不能作为 RCON 或 Minecraft 控制台命令执行。
 - 支持通用 `.mcqqmodule` 增量模块及旧模块格式。
 
@@ -58,7 +59,8 @@
 
 | 分类 | 插件版本 | 兼容说明 | 下载 |
 | --- | --- | --- | --- |
-| 新版 | 1.1.4 | Bukkit 通用版；CraftBukkit、Spigot、Paper、Purpur、Leaves 等 | [`public/new/szydmc-chat-bridge-1.1.4.jar`](public/new/szydmc-chat-bridge-1.1.4.jar) |
+| 新版 | 1.1.6 | Bukkit 通用版；CraftBukkit、Spigot、Paper、Purpur、Leaves 等 | [`public/new/szydmc-chat-bridge-1.1.6.jar`](public/new/szydmc-chat-bridge-1.1.6.jar) |
+| 历史版 | 1.1.5 | Bukkit 通用版 | [`public/old/szydmc-chat-bridge-1.1.5.jar`](public/old/szydmc-chat-bridge-1.1.5.jar) |
 | 历史版 | 1.1.3 | 原 Paper 1.21.11 专用构建 | [`public/old/szydmc-chat-bridge-1.1.3.jar`](public/old/szydmc-chat-bridge-1.1.3.jar) |
 | 历史版 | 1.0.0 | Git 历史中的最早 Paper 1.21.11 构建 | [`public/old/szydmc-chat-bridge-1.0.0.jar`](public/old/szydmc-chat-bridge-1.0.0.jar) |
 
@@ -85,7 +87,7 @@ Linux 长期运行和反向代理配置见 [DEPLOY.md](DEPLOY.md)。运行产生
 ## 安装 Minecraft 插件
 
 1. 关闭 Minecraft 服务器。
-2. 下载 [`public/new/szydmc-chat-bridge-1.1.4.jar`](public/new/szydmc-chat-bridge-1.1.4.jar)，放入服务端 `plugins/`。
+2. 下载 [`public/new/szydmc-chat-bridge-1.1.6.jar`](public/new/szydmc-chat-bridge-1.1.6.jar)，放入服务端 `plugins/`。
 3. 启动一次服务器，让插件生成 `plugins/SZYDMCChatBridge/config.yml`，然后关闭服务器。
 4. 编辑配置：
 
@@ -110,7 +112,7 @@ Linux 长期运行和反向代理配置见 [DEPLOY.md](DEPLOY.md)。运行产生
 mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-settings.xml -f minecraft-plugin/pom.xml clean package
 ```
 
-构建结果位于 `minecraft-plugin/target/szydmc-chat-bridge-1.1.4.jar`。发布时把最新版本放入 `public/new/`，被替代且确有构建来源的旧版本移入 `public/old/`。
+构建结果位于 `minecraft-plugin/target/szydmc-chat-bridge-1.1.6.jar`。发布时把最新版本放入 `public/new/`，被替代且确有构建来源的旧版本移入 `public/old/`。
 
 ## 结束语
 

@@ -1,8 +1,87 @@
-[hidden]{display:none!important}.nav{display:flex;align-items:center;gap:5px;padding:4px;border:1px solid #2b4159;border-radius:11px;background:#111f31}.nav a{display:block;color:#aabdd0;text-decoration:none;font-size:14px;font-weight:700;padding:9px 13px;border-radius:7px;white-space:nowrap}.nav a:hover,.nav a.active{color:#07231f;background:#72e3bf}.link-button{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;white-space:nowrap}.help-link{display:inline-block;color:#80e9c7;margin-top:18px;font-size:14px}.next-card{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:24px 28px;margin-bottom:20px;background:linear-gradient(110deg,#194251,#1c3150);border:1px solid #3e7d78;border-radius:16px}.next-card h2{font-size:22px;margin:8px 0}.next-card p{margin:0;color:#bed2de;line-height:1.5}.quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.quick-card{position:relative;display:grid;gap:9px;text-decoration:none;background:#142136;border:1px solid #2a3d54;border-radius:15px;padding:21px 55px 21px 23px}.quick-card:hover{border-color:#6be3c0}.quick-card strong{color:#eaf4fb;font-size:18px}.quick-card span{color:#9fb5c9;font-size:14px;line-height:1.5}.quick-card b{position:absolute;right:21px;top:30px;color:#75e6c3;font-size:25px}.settings-layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(320px,1fr);gap:20px}.settings-layout .side-stack{display:grid;grid-template-columns:1fr;align-content:start;gap:20px}.settings-layout .config-panel fieldset:first-child legend{padding-top:0}.hint{color:#9fb2c5;font-size:14px;line-height:1.55;margin:0 0 13px}.guide-list{display:grid;gap:16px;max-width:1000px}.guide-step{display:grid;grid-template-columns:62px minmax(0,1fr);gap:10px}.guide-step .step-number{font-size:23px;font-weight:800;color:#72e3bf}.guide-step h2{margin:0 0 10px}.guide-step p{font-size:15px;margin:0 0 12px}.guide-step pre{background:#0c192a;border:1px solid #294058;border-radius:10px;color:#d5ecdf;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.5}.guide-step .link-button{margin-top:6px}.callout{display:grid;gap:5px;padding:15px 17px;border-left:3px solid #72e3bf;background:#163439;border-radius:0 9px 9px 0;color:#e8f6ed}.callout span{color:#b8d1c9;font-size:14px}@media(max-width:1050px){.settings-layout{grid-template-columns:1fr}}@media(max-width:760px){.topbar{height:auto;min-height:72px;flex-wrap:wrap;padding:14px 0;gap:11px}.nav{order:3;width:100%;justify-content:space-between}.nav a{flex:1;text-align:center;padding:9px 6px}.next-card{align-items:stretch;flex-direction:column}.quick-grid{grid-template-columns:1fr}.guide-step{grid-template-columns:1fr;gap:6px}.guide-step .step-number{font-size:16px}}
+.status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.status-card { padding: 16px 18px; }
+.status-card > span, .status-card > small { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.status-card strong { display: block; margin: 5px 0 6px; font-size: clamp(23px, 3vw, 31px); line-height: 1.2; overflow-wrap: anywhere; }
+.status-card[data-tone="good"] strong, .connection-state[data-tone="good"] { color: var(--positive); }
+.status-card[data-tone="warn"] strong, .connection-state[data-tone="warn"] { color: var(--warning); }
+.connection-state[data-tone="error"] { color: var(--danger); }
+.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(230px, 1fr); gap: 16px; align-items: start; }
+.dashboard-grid .panel-head { margin: 0; padding: 10px 18px; min-height: 55px; border-bottom: 1px solid var(--border); }
+.dashboard-grid .panel { padding: 0; }
+.dashboard-grid .panel-head .text-link { min-height: 30px; }
+.dashboard-actions { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; }
+.dashboard-actions time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.connection-list, .records { padding-inline: 18px; }
+.connection-list > div {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 9px; align-items: center;
+  padding-block: 12px; min-height: 57px;
+}
+.connection-list > div + div, .record + .record { border-top: 1px solid var(--border); }
+.connection-list dt { font-weight: 630; font-size: 13px; overflow-wrap: anywhere; }
+.connection-state { display: inline-flex; align-items: center; gap: 6px; grid-area: 1 / 2 / 3 / 3; font-size: 12px; color: var(--muted); }
+.connection-state::before { content: ""; width: 6px; height: 6px; flex: none; border: 1px solid currentColor; border-radius: 50%; }
+.connection-state[data-tone="good"]::before { background: currentColor; }
+.connection-detail { grid-row: 2; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.records { max-height: 445px; overflow: auto; }
+.records.empty { color: var(--muted); padding-block: 19px; }
+.record { display: grid; gap: 3px; padding-block: 10px; }
+.record strong { font-size: 13px; overflow-wrap: anywhere; }
+.record small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.next-card { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; padding: 12px 16px; }
+.next-card h2 { font-size: 15px; }
+.next-card p { font-size: 13px; }
+.dashboard-status { margin: 0 0 12px; }
 
-.relay-options{display:grid;gap:10px}.relay-option{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px;border:1px solid #34506b;border-radius:10px;background:#0d192a;cursor:pointer}.relay-option span{display:grid;gap:5px}.relay-option strong{font-size:15px;color:#eaf4fb}.relay-option small{font-size:13px;line-height:1.4;color:#9fb2c5}.relay-option input[type=checkbox]{flex:none;width:22px;height:22px;margin:0;accent-color:#69dfbc;cursor:pointer}
-.fields textarea{width:100%;min-height:80px;resize:vertical;margin-top:8px;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px;outline:none;font:14px Inter,"Segoe UI","Microsoft YaHei",sans-serif}.fields textarea:focus{border-color:#6be3c0;box-shadow:0 0 0 3px #6be3c02a}.fields textarea::placeholder{color:#6f849b}
-.fields select{width:100%;margin-top:8px;padding:11px 13px;background:#0d192a;color:#fff;border:1px solid #34506b;border-radius:9px;font:14px Inter,"Segoe UI","Microsoft YaHei",sans-serif}.fields select:focus{outline:2px solid #6be3c0}
+.settings-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 16px; align-items: start; }
+.settings-jumps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.side-stack { display: grid; min-width: 0; gap: 16px; align-content: start; }
+.config-panel fieldset + fieldset { border-top: 1px solid var(--border); margin-top: 20px; }
+.config-panel legend { margin-bottom: 9px; padding: 0 7px 0 0; }
+.config-panel .hint { margin-bottom: 10px; }
+.config-panel .fields + .hint, .config-panel .fields + button, .config-panel .relay-options + .fields, .config-panel button + .hint { margin-top: 10px; }
+.fields, .stacked-form { display: grid; gap: 10px; }
+.fields.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fields .wide { grid-column: 1 / -1; }
+.fields label, .stacked-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.form-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 17px; padding-top: 13px; border-top: 1px solid var(--border); }
+.form-footer .hint { margin: 0; }
+.test-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 9px; }
+.relay-options { display: grid; gap: 7px; }
+.relay-option, .template-switches label, .server-log-controls .log-switch, .checkin-toggle {
+  display: flex !important; align-items: center; justify-content: space-between; gap: 9px;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--inset); cursor: pointer;
+}
+.relay-option span, .template-switches span, .log-switch span { display: grid; gap: 2px; min-width: 0; }
+.relay-option strong, .template-switches strong, .log-switch strong { color: var(--ink); }
+.relay-option small, .template-switches small, .log-switch small { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.guide-list { display: grid; max-width: 930px; gap: 12px; }
+.guide-step { display: grid; grid-template-columns: 35px minmax(0, 1fr); gap: 9px; }
+.guide-step .step-number { color: var(--accent-ink); font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.guide-step h2 { margin-bottom: 7px; }
+.guide-step p, .guide-step pre { margin: 8px 0; }
+.guide-step pre { padding: 11px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--inset); font-size: 12px; }
+.callout { display: grid; margin-top: 9px; padding: 9px 11px; border-left: 2px solid var(--positive); background: var(--inset); }
+.callout span { color: var(--muted); }
 
-.nav{max-width:100%;overflow-x:auto}
-@media(max-width:760px){.nav{justify-content:flex-start}.nav a{flex:none}}
+@media (max-width: 1080px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-layout .side-stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 780px) {
+  .dashboard-grid { grid-template-columns: minmax(0, 1fr); gap: 13px; }
+  .dashboard-grid .connections-panel { grid-row: 1; }
+  .dashboard-grid .panel-head { padding-inline: 13px; min-height: 50px; }
+  .connection-list, .records { padding-inline: 13px; }
+  .records { max-height: 370px; }
+  .settings-layout .side-stack { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 540px) {
+  .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 13px; }
+  .status-card { padding: 12px 10px; }
+  .status-card:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px 8px; align-items: baseline; }
+  .status-card:last-child strong { margin: 0; font-size: 19px; }
+  .status-card:last-child small { margin-left: auto; }
+  .fields.two { grid-template-columns: minmax(0, 1fr); }
+  .config-panel fieldset:nth-of-type(-n + 2) .fields.two { grid-template-columns: minmax(0, 1fr) minmax(83px, .58fr); }
+  .guide-step { grid-template-columns: 24px minmax(0, 1fr); gap: 6px; }
+}

@@ -1,4 +1,4 @@
-const aliases = new Map([
+export const commandAliases = new Map([
   ['登记', 'qqbind'],
   ['解除登记', 'qqunbind'],
   ['绑定', 'mcbind'],
@@ -13,6 +13,6 @@ const aliases = new Map([
 
 export function normalizeCommand(message) {
   return String(message ?? '').replace(/^\/([^\s]+)(?=\s|$)/u, (matched, name) =>
-    aliases.has(name) ? '/' + aliases.get(name) : matched);
+    commandAliases.has(name) ? '/' + commandAliases.get(name) : matched);
 }
 

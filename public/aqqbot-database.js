@@ -9,8 +9,12 @@ function render() {
   const shown = all.filter(item => item.qq.includes(term) || item.openid.toLowerCase().includes(term) || item.players.some(player => player.toLowerCase().includes(term)));
   for (const item of shown) {
     const tr = document.createElement('tr');
-    for (const value of [item.qq, item.openid || '—', item.players.length ? item.players.join('、') : '无', String(item.players.length)]) {
+    for (const [label, value] of [
+      ['QQ 号', item.qq], ['登记 OpenID', item.openid || '—'],
+      ['Minecraft 玩家', item.players.length ? item.players.join('、') : '无'], ['玩家数', String(item.players.length)]
+    ]) {
       const td = document.createElement('td');
+      td.dataset.label = label;
       td.textContent = value;
       tr.append(td);
     }

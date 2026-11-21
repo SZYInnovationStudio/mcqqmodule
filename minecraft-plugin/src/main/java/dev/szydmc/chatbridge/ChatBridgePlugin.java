@@ -78,8 +78,9 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
     private final String runId = UUID.randomUUID().toString().replace("-", "");
     private URI endpoint;
     private String key;
+    private boolean ready;
     private String epoch = "";
-    private long lastAck;
+    private volatile long lastAck;
     private long lastWarn;
     private BukkitTask task;
     private File aqqbotDataFile;
@@ -88,20 +89,30 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
     private String serverLogFileKey = "";
     private boolean serverLogInitialized;
     private volatile boolean serverLogEnabled;
+    private JsonObject cachedAqqbotSnapshot;
+    private String aqqbotSnapshotKey = "";
+    private long lastAqqbotSnapshotAt;
 
     @Override public void onEnable() {
         saveDefaultConfig();
-        key = getConfig().getString("key", "").trim();
+        ready = false;
+        endpoint = null;
+        key = null;
+        String parsedKey = getConfig().getString("key", "").trim();
         String url = getConfig().getString("bridge-url", "");
+        URI parsedEndpoint;
         try {
-            endpoint = URI.create(url);
-            boolean loopback = "127.0.0.1".equals(endpoint.getHost());
-            if (!("https".equals(endpoint.getScheme()) || ("http".equals(endpoint.getScheme()) && loopback)) || !"/api/plugin/exchange".equals(endpoint.getPath())) throw new IllegalArgumentException("远程地址必须使用 HTTPS；本机可用 HTTP 127.0.0.1");
-            if (!key.matches("[A-Za-z0-9_-]{32,128}")) throw new IllegalArgumentException("请在 plugins/SZYDMCChatBridge/config.yml 填写至少 32 位的插件 Key");
+            parsedEndpoint = URI.create(url);
+            boolean loopback = "127.0.0.1".equals(parsedEndpoint.getHost());
+            if (parsedEndpoint.getHost() == null || parsedEndpoint.getUserInfo() != null) throw new IllegalArgumentException("bridge-url 格式无效");
+            if (!("https".equals(parsedEndpoint.getScheme()) || ("http".equals(parsedEndpoint.getScheme()) && loopback)) || !"/api/plugin/exchange".equals(parsedEndpoint.getPath())) throw new IllegalArgumentException("远程地址必须使用 HTTPS；本机可用 HTTP 127.0.0.1");
+            if (!parsedKey.matches("[A-Za-z0-9_-]{32,128}")) throw new IllegalArgumentException("请在 plugins/SZYDMCChatBridge/config.yml 填写至少 32 位的插件 Key");
         } catch (IllegalArgumentException error) {
             getLogger().severe("聊天桥接未启用：" + error.getMessage());
             return;
         }
+        endpoint = parsedEndpoint;
+        key = parsedKey;
         String dataPath = getConfig().getString("aqqbot-data-path", "../AQQBot/data.yml");
         aqqbotDataFile = new File(dataPath).isAbsolute() ? new File(dataPath) : new File(getDataFolder(), dataPath);
         String logPath = getConfig().getString("server-log-path", "../../logs/latest.log");
@@ -109,12 +120,14 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         Bukkit.getPluginManager().registerEvents(this, this);
         queue("start", "", "", Collections.<String>emptyList());
         task = Bukkit.getScheduler().runTaskTimerAsynchronously(this, this::poll, 20L, 20L);
+        ready = true;
         getLogger().info("聊天桥接已启用；插件主动连接网页程序，不开放新的 MC 端口。");
     }
 
     @Override public void onDisable() {
         if (task != null) task.cancel();
-        sendLifecycleNow("stop");
+        if (ready) sendLifecycleNow("stop");
+        ready = false;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -155,7 +168,8 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
     }
 
     private void poll() {
-        if (!isEnabled() || !polling.compareAndSet(false, true)) return;
+        if (!ready || !isEnabled() || !polling.compareAndSet(false, true)) return;
+        JsonObject snapshot = null;
         try {
             List<OutgoingLine> batch = new ArrayList<>();
             for (OutgoingLine line : pending) { if (batch.size() == 20) break; batch.add(line); }
@@ -176,7 +190,8 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
                 sent.add(item);
             }
             request.add("sent", sent);
-            request.add("aqqbotSnapshot", readAqqbotSnapshot());
+            snapshot = readAqqbotSnapshot();
+            if (snapshot != null) request.add("aqqbotSnapshot", snapshot);
             LogBatch logBatch = serverLogEnabled ? readServerLogBatch() : null;
             if (logBatch != null && !logBatch.lines().isEmpty()) {
                 JsonObject logs = new JsonObject();
@@ -194,17 +209,25 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
             if (!nextLogEnabled) serverLogInitialized = false;
             serverLogEnabled = nextLogEnabled;
             String returnedEpoch = body.get("epoch").getAsString();
-            if (!returnedEpoch.equals(epoch)) { epoch = returnedEpoch; lastAck = 0; }
+            if (!returnedEpoch.equals(epoch)) {
+                epoch = returnedEpoch;
+                lastAck = 0;
+                cachedAqqbotSnapshot = null;
+                aqqbotSnapshotKey = "";
+            }
             for (JsonElement element : body.getAsJsonArray("receive")) {
                 JsonObject item = element.getAsJsonObject();
                 long id = item.get("id").getAsLong();
                 if (id <= lastAck) continue;
                 String text = render(item.getAsJsonArray("components"));
-                Bukkit.getScheduler().runTask(this, () -> Bukkit.getOnlinePlayers().forEach(player -> player.sendMessage(text)));
-                lastAck = id;
+                Bukkit.getScheduler().runTask(this, () -> {
+                    Bukkit.getOnlinePlayers().forEach(player -> player.sendMessage(text));
+                    lastAck = Math.max(lastAck, id);
+                });
             }
             for (OutgoingLine line : batch) pending.remove(line);
         } catch (Exception error) {
+            if (snapshot != null) lastAqqbotSnapshotAt = 0;
             long now = System.currentTimeMillis();
             if (now - lastWarn > 30000) {
                 Throwable cause = error;
@@ -272,7 +295,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
     }
 
     private void sendLifecycleNow(String kind) {
-        if (endpoint == null || key == null || key.trim().isEmpty()) return;
+        if (!ready || endpoint == null || key == null || key.trim().isEmpty()) return;
         try {
             JsonObject request = new JsonObject();
             request.addProperty("ack", lastAck);
@@ -290,16 +313,19 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
     }
 
     private JsonObject readAqqbotSnapshot() {
-        JsonObject snapshot = new JsonObject();
-        snapshot.addProperty("capturedAt", System.currentTimeMillis());
-        JsonArray rows = new JsonArray();
-        snapshot.add("rows", rows);
+        long now = System.currentTimeMillis();
+        if (cachedAqqbotSnapshot != null && now - lastAqqbotSnapshotAt < 10000L) return null;
         if (aqqbotDataFile == null || !aqqbotDataFile.isFile()) {
-            snapshot.addProperty("available", false);
-            snapshot.addProperty("reason", "未找到 AQQBot data.yml");
-            return snapshot;
+            return cachedAqqbotFailure("missing", now, "未找到 AQQBot data.yml");
         }
         try {
+            BasicFileAttributes attributes = Files.readAttributes(aqqbotDataFile.toPath(), BasicFileAttributes.class);
+            String cacheKey = String.valueOf(attributes.fileKey()) + ":" + attributes.lastModifiedTime().toMillis() + ":" + attributes.size();
+            if (cachedAqqbotSnapshot != null && cacheKey.equals(aqqbotSnapshotKey) && now - lastAqqbotSnapshotAt < 30000L) return null;
+            JsonObject snapshot = new JsonObject();
+            snapshot.addProperty("capturedAt", now);
+            JsonArray rows = new JsonArray();
+            snapshot.add("rows", rows);
             YamlConfiguration data = YamlConfiguration.loadConfiguration(aqqbotDataFile);
             int count = 0;
             for (String key : data.getKeys(false)) {
@@ -321,38 +347,61 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
                 count++;
             }
             snapshot.addProperty("available", true);
+            cachedAqqbotSnapshot = snapshot;
+            aqqbotSnapshotKey = cacheKey;
+            lastAqqbotSnapshotAt = now;
             return snapshot;
         } catch (Exception error) {
-            snapshot.addProperty("available", false);
-            snapshot.addProperty("reason", "读取 AQQBot data.yml 失败：" + error.getClass().getSimpleName());
-            return snapshot;
+            return cachedAqqbotFailure("error", now, "读取 AQQBot data.yml 失败：" + error.getClass().getSimpleName());
         }
     }
 
+    private JsonObject cachedAqqbotFailure(String key, long now, String reason) {
+        if (cachedAqqbotSnapshot != null && key.equals(aqqbotSnapshotKey) && now - lastAqqbotSnapshotAt < 30000L) return null;
+        JsonObject snapshot = new JsonObject();
+        snapshot.addProperty("capturedAt", now);
+        snapshot.addProperty("available", false);
+        snapshot.addProperty("reason", reason);
+        snapshot.add("rows", new JsonArray());
+        cachedAqqbotSnapshot = snapshot;
+        aqqbotSnapshotKey = key;
+        lastAqqbotSnapshotAt = now;
+        return snapshot;
+    }
+
     private String post(JsonObject request, int timeoutMillis, boolean readBody) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection)endpoint.toURL().openConnection();
-        connection.setConnectTimeout(Math.min(5000, timeoutMillis));
-        connection.setReadTimeout(timeoutMillis);
-        connection.setRequestMethod("POST");
-        connection.setRequestProperty("Authorization", "Bearer " + key);
-        connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-        connection.setDoOutput(true);
-        byte[] payload = request.toString().getBytes(StandardCharsets.UTF_8);
-        connection.setFixedLengthStreamingMode(payload.length);
-        try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
-        int status = connection.getResponseCode();
-        if (status != HttpURLConnection.HTTP_OK) {
-            connection.disconnect();
-            throw new IllegalStateException("平台 HTTP " + status);
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection)endpoint.toURL().openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(Math.min(5000, timeoutMillis));
+            connection.setReadTimeout(timeoutMillis);
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Authorization", "Bearer " + key);
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            connection.setDoOutput(true);
+            byte[] payload = request.toString().getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(payload.length);
+            try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
+            int status = connection.getResponseCode();
+            if (status != HttpURLConnection.HTTP_OK) throw new IllegalStateException("平台 HTTP " + status);
+            if (!readBody) return "";
+            StringBuilder body = new StringBuilder();
+            try (InputStream input = connection.getInputStream();
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                char[] buffer = new char[8192];
+                int read;
+                int total = 0;
+                while ((read = reader.read(buffer)) >= 0) {
+                    total += read;
+                    if (total > 1048576) throw new IllegalStateException("平台响应过大");
+                    body.append(buffer, 0, read);
+                }
+            }
+            return body.toString();
+        } finally {
+            if (connection != null) connection.disconnect();
         }
-        if (!readBody) { connection.disconnect(); return ""; }
-        StringBuilder body = new StringBuilder();
-        try (InputStream input = connection.getInputStream();
-             BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) body.append(line);
-        } finally { connection.disconnect(); }
-        return body.toString();
     }
 
     private String render(JsonArray components) {

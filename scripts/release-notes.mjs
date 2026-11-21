@@ -15,7 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -58,15 +58,33 @@ const versionSection = extractSection(appVersion);
  *   - 本次内容与上次相同 → 重复推送，修订号不变（同一份包不刷出不同编号）
  *   - 本次内容不同 → 真的改了东西，修订号 +1
  *
- * 内容哈希由所有发布产物的字节计算，保证「包变了才算一次」。
+ * 内容哈希由仓库源码与资源文件计算，避免构建时间戳导致重复推送也进位。
  */
+const FINGERPRINT_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'data', 'coverage', '.sites-runtime', 'target']);
+const FINGERPRINT_SKIP_FILES = new Set(['.env', 'REVISIONS.md']);
+const FINGERPRINT_SKIP_EXTENSIONS = ['.log', '.zip', '.jar'];
+
+async function collectFingerprintFiles(dir, base, files) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const abs = join(dir, entry.name);
+    const rel = relative(base, abs).split('\\').join('/');
+    if (entry.isDirectory()) {
+      if (FINGERPRINT_SKIP_DIRS.has(entry.name)) continue;
+      await collectFingerprintFiles(abs, base, files);
+    } else if (entry.isFile()) {
+      if (entry.name === '.env' || entry.name === 'master.key') continue;
+      if (FINGERPRINT_SKIP_FILES.has(rel) || FINGERPRINT_SKIP_EXTENSIONS.some(ext => rel.endsWith(ext))) continue;
+      files.push(rel);
+    }
+  }
+  return files;
+}
+
 async function computeRevision(version) {
-  // 1. 计算本次产物内容哈希
   const digest = createHash('sha256');
-  const artifacts = (await readdir(releaseDir)).sort();
-  for (const name of artifacts) {
-    const data = await readFile(join(releaseDir, name));
-    digest.update(name).update(data);
+  const sources = (await collectFingerprintFiles(root, root, [])).sort();
+  for (const rel of sources) {
+    digest.update(rel).update('\0').update(await readFile(join(root, rel)));
   }
   const currentHash = digest.digest('hex').slice(0, 16);
 
@@ -106,7 +124,7 @@ const rank = (file) => {
 };
 const ordered = [...files].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 const describe = {
-  'mc-qq-bridge': '完整公开分发包（后台 + 网页 + 插件源码 + 插件 JAR + 模块包），解压即用',
+  'mc-qq-bridge': '完整公开分发包（后台 + 网页 + 插件源码 + 插件 JAR + 模块源码；可直接安装的模块包见独立附件），解压即用',
   'szydmc-chat-bridge': '独立 Minecraft 插件 JAR，丢进服务端 plugins/ 即可',
   'daily-checkin-money': '每日签到增量模块，在后台「模块中心」上传',
   'SHA256SUMS': '全部附件的 SHA-256 校验值',
@@ -186,9 +204,9 @@ try {
     for (const i of hits.slice(1).reverse()) rows.splice(i, 1);
   } else {
     // 首次记录：去掉末尾空行后追加
-    while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
     rows.push(row);
   }
+  while (rows.length && !rows[rows.length - 1].trim()) rows.pop();
   await writeFile(revFile, `${rows.join('\n')}\n`);
 } catch (error) {
   console.warn(`REVISIONS.md 回写失败：${error.message}`);

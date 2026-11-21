@@ -1,6 +1,7 @@
 import { $, api, message } from './common.js';
 
 let selectedBundle = null;
+let selectionVersion = 0;
 
 function summary(bundle) {
   const formats = new Set(['bridge-module-v2', 'szydmc-module-v1']);
@@ -14,7 +15,7 @@ function summary(bundle) {
     `格式：${bundle.format === 'bridge-module-v2' ? '通用 v2' : '旧版 v1（兼容）'}`,
     `文件：${bundle.files.length} 个`,
     `服务端代码：${entry ? '包含 ' + entry : '无（纯页面）'}`,
-    `权限：${permissions.includes('*') ? '完整宿主权限' : permissions.join('、')}`,
+    `权限：${permissions.includes('*') ? '完整宿主权限' : permissions.join('、') + '（声明项，不强制隔离）'}`,
     description ? `说明：${description}` : ''
   ].filter(Boolean).join('\n');
 }
@@ -42,7 +43,7 @@ function renderList(state) {
     description.textContent = item.description || '没有填写简介';
     meta.textContent = `${item.id} · ${item.hasServer ? '页面与接口' : '纯页面'} · ${item.installedAt ? new Date(item.installedAt).toLocaleString('zh-CN') : '安装时间未知'} · ${item.enabled ? '已启用' : '已关闭'}`;
     format.className = 'module-format';
-    format.textContent = `${item.format === 'bridge-module-v2' ? '通用 v2' : '旧版兼容'} · ${item.permissions?.includes('*') ? '完整权限' : '受限接口'}`;
+    format.textContent = `${item.format === 'bridge-module-v2' ? '通用 v2' : '旧版兼容'} · ${item.permissions?.includes('*') ? '完整权限' : '声明接口（无强制隔离）'}`;
     content.append(title, description, meta, format);
     const open = document.createElement('a');
     open.className = 'secondary link-button';
@@ -70,18 +71,21 @@ async function refresh() {
 }
 
 $('module-file').addEventListener('change', async event => {
+  const version = ++selectionVersion;
   selectedBundle = null;
   $('install-module').disabled = true;
   const file = event.currentTarget.files[0];
   if (!file) { $('module-preview').textContent = '尚未选择文件。'; return; }
-  if (file.size > 34 * 1024 * 1024) { $('module-preview').textContent = '文件超过 34 MiB，无法上传。'; return; }
+  if (file.size > 48 * 1024 * 1024) { $('module-preview').textContent = '文件超过 48 MiB，无法上传。'; return; }
   try {
     const bundle = JSON.parse(await file.text());
+    if (version !== selectionVersion || $('module-file').files[0] !== file) return;
     $('module-preview').textContent = summary(bundle);
     selectedBundle = bundle;
     $('install-module').disabled = false;
     message('module-message', '清单已读取。点击安装或升级后，服务端会再做完整校验。');
   } catch (error) {
+    if (version !== selectionVersion) return;
     $('module-preview').textContent = `读取失败：${error.message}`;
     message('module-message', '模块包无法读取。', true);
   }
@@ -89,18 +93,19 @@ $('module-file').addEventListener('change', async event => {
 
 $('install-module').addEventListener('click', async event => {
   if (!selectedBundle) return;
-  event.currentTarget.disabled = true;
+  const button = event.currentTarget;
+  button.disabled = true;
   message('module-message', '正在校验并安装或升级模块…');
   try {
     const result = await api('modules/install', { method: 'POST', body: JSON.stringify(selectedBundle) });
     message('module-message', `已安装或升级 ${result.installed.name} ${result.installed.version}。`);
     selectedBundle = null;
     $('module-file').value = '';
-    $('module-preview').textContent = '安装完成。可以从右侧列表打开。';
+    $('module-preview').textContent = '安装完成。可以从已安装列表打开。';
     await refresh();
   } catch (error) {
     message('module-message', error.message, true);
-    event.currentTarget.disabled = false;
+    button.disabled = false;
   }
 });
 

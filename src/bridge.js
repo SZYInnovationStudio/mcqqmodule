@@ -15,6 +15,7 @@ import { OneBotLink } from './onebot.js';
 
 const CODE_TTL = 5 * 60 * 1000;
 const PLUGIN_OFFLINE_CONFIRM_MS = 90_000;
+const PLUGIN_HEARTBEAT_OFFLINE_CONFIRM_MS = 180_000;
 const readBotVersion = () => JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const BEIJING_TIME = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 const QQ_FORMAT = /^\d{5,20}$/;
@@ -67,6 +68,7 @@ export class Bridge {
     this.pluginConnectionTimer = null;
     this.pluginStopTimer = null;
     this.pluginOfflineConfirmMs = deps.pluginOfflineConfirmMs ?? PLUGIN_OFFLINE_CONFIRM_MS;
+    this.pluginHeartbeatOfflineConfirmMs = deps.pluginHeartbeatOfflineConfirmMs ?? PLUGIN_HEARTBEAT_OFFLINE_CONFIRM_MS;
     this.pendingServerStatus = null;
     this.aqqbotDatabase = { available: false, reason: '尚未收到插件快照', rows: [], capturedAt: null, receivedAt: null };
     this.serverLogs = [];
@@ -81,9 +83,7 @@ export class Bridge {
     this.realQQByGroupUser = new Map();
     /** 群号 → 群名称（来自 OneBot 的群名上报或群名称事件） */
     this.groupNamesByRealId = new Map();
-    /** 内容指纹 → 时间，用于官方 Bot 与 OneBot 双源去重 */
-    this.relayFingerprints = new Map();
-    /** 双源去重时间窗 */
+    /** 双源时间窗，用于匹配官方 Bot 与监听 Bot 看到的同一条消息 */
     this.relayDedupWindowMs = deps.relayDedupWindowMs ?? 15_000;
     /** OpenID → 真实 QQ 号（由 OneBot 群消息间接学习得到） */
     this.openidToRealQQ = new Map();
@@ -109,11 +109,16 @@ export class Bridge {
     this.recentOwnSent = [];
     /** 玩家名 → { qq, at } 缓存，避免同一玩家连续发言时反复查 RCON */
     this.playerQQCache = new Map();
+    this.playerQQInflight = new Map();
     this.playerQQCacheMs = deps.playerQQCacheMs ?? 60_000;
+    this.playerQQIndex = new Map();
+    this.allowedGroupsRaw = null;
+    this.allowedGroupList = [];
+    this.nameMaps = { groupNamesRaw: null, memberNamesRaw: null, groupMap: new Map(), memberMap: new Map() };
     if (this.onebot) this.bindOneBotEvents();
   }
 
-  /** 创建插件消息交换器（构造与重启时都要用，抽出来避免两处漂移） */
+  /** 创建插件消息交换器 */
   createPluginExchange() {
     const exchange = new PluginChatExchange(
       chat => this.sendMcChatToQq(chat),
@@ -154,14 +159,14 @@ export class Bridge {
     const groupId = String(event?.groupId ?? '');
     if (!/^\d{5,20}$/.test(groupId) || !Array.isArray(event?.members)) return;
     const index = { byCard: new Map(), byNick: new Map(), members: [] };
-    for (const item of event.members) {
+    for (const item of event.members.slice(0, 5000)) {
       const userId = String(item?.userId ?? '');
       if (!/^\d{5,20}$/.test(userId)) continue;
       const card = String(item?.card ?? '').slice(0, 48);
       const nickname = String(item?.nickname ?? '').slice(0, 48);
       index.members.push({ userId, card, nickname });
-      if (card) index.byCard.set(card, userId);
-      if (nickname) index.byNick.set(nickname, userId);
+      if (card) index.byCard.set(card, index.byCard.has(card) ? '' : userId);
+      if (nickname) index.byNick.set(nickname, index.byNick.has(nickname) ? '' : userId);
     }
     this.membersByGroupId.set(groupId, index);
     // 立刻用名单回填所有已学到的群，让显示名与 QQ 号一次到位
@@ -185,9 +190,11 @@ export class Bridge {
     if (!this.isOneBotActive()) return '';
     const name = String(displayName ?? '').trim();
     if (!name) return '';
-    const index = this.memberIndexByGroupOpenid.get(groupOpenid);
+    const realGroupId = this.openidGroupToReal.get(groupOpenid) ?? this.inferGroupIdByMember(groupOpenid);
+    const index = this.memberIndexByGroupOpenid.get(groupOpenid)
+      ?? this.membersByGroupId.get(realGroupId);
     if (index) {
-      return index.byCard.get(name) ?? index.byNick.get(name) ?? '';
+      return index.byCard.get(name) || index.byNick.get(name) || '';
     }
     return '';
   }
@@ -198,34 +205,33 @@ export class Bridge {
     // 机器人自己发的消息不算：本平台通过官方 Bot 往群里发的内容，
     // 也会被监听 Bot 收进来。若当成「群友发言」学习，就会把机器人自己的
     // 内容错认成某个群友，污染 OpenID↔QQ 关联。
-    if (this.isOwnSentText(message.text)) return;
+    if (this.isOwnSentText(message.text, message.groupId)) return;
     this.rememberRealQQ(message.groupId, message.userId);
-    if (message.text) {
-      const key = this.fingerprint(message.groupId, message.userId, message.text);
-      this.relayFingerprints.set(key, Date.now());
+    const text = normalizeCommand(message.text);
+    if (text) {
       // 供官方 Bot 侧做「同内容+时间窗」关联，学习 OpenID ↔ 真实 QQ
-      this.rememberOneBotMessage(message);
+      this.rememberOneBotMessage({ ...message, text });
     }
-    this.pruneFingerprints();
   }
 
   /** 记下本平台刚发出的内容，用来识别监听 Bot 收回来的「自己人回声」 */
-  rememberOwnSentText(content) {
+  rememberOwnSentText(content, targetId = '') {
     const text = String(content ?? '').trim();
     if (!text) return;
-    this.recentOwnSent.push({ text, at: Date.now() });
+    const realGroupId = targetId ? (this.openidGroupToReal.get(targetId) ?? '') : '';
+    this.recentOwnSent.push({ text, groupId: realGroupId, at: Date.now() });
     const cutoff = Date.now() - this.relayDedupWindowMs;
     this.recentOwnSent = this.recentOwnSent.filter(item => item.at >= cutoff);
     if (this.recentOwnSent.length > 50) this.recentOwnSent.shift();
   }
 
   /** 这条文本是不是本平台刚发出去的（监听 Bot 的回声） */
-  isOwnSentText(text) {
+  isOwnSentText(text, groupId = '') {
     const value = String(text ?? '').trim();
     if (!value) return false;
     const cutoff = Date.now() - this.relayDedupWindowMs;
     this.recentOwnSent = this.recentOwnSent.filter(item => item.at >= cutoff);
-    return this.recentOwnSent.some(item => item.text === value);
+    return this.recentOwnSent.some(item => item.text === value && (!item.groupId || !groupId || item.groupId === String(groupId)));
   }
 
   /**
@@ -273,8 +279,7 @@ export class Bridge {
     const hit = candidates[0];
     // 群 OpenID → 真实群号
     if (groupOpenid && hit.groupId && this.openidGroupToReal.get(groupOpenid) !== hit.groupId) {
-      this.openidGroupToReal.set(groupOpenid, hit.groupId);
-      this.realGroupToOpenid.set(hit.groupId, groupOpenid);
+      this.linkGroupMapping(groupOpenid, hit.groupId);
       this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 关联到真实群号 ${hit.groupId}`);
     }
     // OpenID → 真实 QQ
@@ -299,6 +304,13 @@ export class Bridge {
     try { this.store.rememberRealQQ?.(openid, value); } catch { /* 持久化失败不影响本次会话 */ }
   }
 
+  forgetRealQQ(openid) {
+    if (typeof openid !== 'string') return;
+    this.openidToRealQQ.delete(openid);
+    this.displayNamesByOpenid.delete(openid);
+    try { this.store.forgetRealQQ?.(openid); } catch { /* 持久化失败不影响本次会话 */ }
+  }
+
   /** 取某个 OpenID 已知的真实 QQ 号（可能为空） */
   realQQForOpenid(openid) {
     return this.openidToRealQQ.get(openid) ?? null;
@@ -311,6 +323,7 @@ export class Bridge {
   rememberDisplayName(openid, displayName) {
     if (!openid || !displayName) return;
     this.displayNamesByOpenid.set(openid, String(displayName).slice(0, 48));
+    if (this.displayNamesByOpenid.size > 5000) this.displayNamesByOpenid.delete(this.displayNamesByOpenid.keys().next().value);
   }
 
   /** 监听源优先：拿到过就用它，否则返回空让调用方兜底 */
@@ -337,13 +350,16 @@ export class Bridge {
    * 由 AQQBot 快照同步或用户 /qqbind 补齐。
    */
   resolveQQForOpenid(openid, groupOpenid, displayName) {
-    // 1. 已学到
-    const learned = this.realQQForOpenid(openid);
-    if (learned) return learned;
+    // 1. 已学到（仅在监听 Bot 启用时使用）
+    if (this.isOneBotActive()) {
+      const learned = this.realQQForOpenid(openid);
+      if (learned) return learned;
+    }
 
     // 2. 用户登记
     const registered = this.store.state.users?.[openid]?.qq;
     if (registered) return String(registered);
+    if (!this.isOneBotActive()) return '';
 
     // 3. 群成员名单反查（群名片 → 昵称）
     const fromMembers = this.realQQByDisplayName(groupOpenid, displayName);
@@ -387,37 +403,22 @@ export class Bridge {
     }
   }
 
+  linkGroupMapping(groupOpenid, realGroupId) {
+    if (!groupOpenid || !realGroupId) return;
+    const previous = this.openidGroupToReal.get(groupOpenid);
+    if (previous && previous !== realGroupId && this.realGroupToOpenid.get(previous) === groupOpenid) this.realGroupToOpenid.delete(previous);
+    const previousOpenid = this.realGroupToOpenid.get(realGroupId);
+    if (previousOpenid && previousOpenid !== groupOpenid) this.openidGroupToReal.delete(previousOpenid);
+    this.openidGroupToReal.set(groupOpenid, realGroupId);
+    this.realGroupToOpenid.set(realGroupId, groupOpenid);
+    const index = this.membersByGroupId.get(realGroupId);
+    if (index) this.memberIndexByGroupOpenid.set(groupOpenid, index);
+    else this.memberIndexByGroupOpenid.delete(groupOpenid);
+  }
+
   /** 取某个群成员最近上报的真实 QQ 号 */
   realQQFor(groupId, userId) {
     return this.realQQByGroupUser.has(`${groupId}:${userId}`) ? userId : null;
-  }
-
-  /** 双源去重指纹：同一群、同一人、同一内容在一个时间窗内只转发一次 */
-  fingerprint(groupId, userId, text) {
-    return `${groupId}|${userId}|${String(text ?? '').toLowerCase()}`;
-  }
-
-  pruneFingerprints() {
-    const cutoff = Date.now() - this.relayDedupWindowMs;
-    for (const [key, at] of this.relayFingerprints) if (at < cutoff) this.relayFingerprints.delete(key);
-  }
-
-  /**
-   * 判断这条消息是否已在时间窗内转发过；用于官方 Bot 与 OneBot 去重。
-   *
-   * 注意这里的判据必须同时满足「同群 + 同人 + 同内容 + 同消息 ID」，
-   * 否则用户连续发两次同样的「哈哈哈」会被误杀，表现为「游戏里偶尔不同步」。
-   */
-  isDuplicateRelay(groupId, userId, text, messageId = '') {
-    if (!this.isOneBotActive()) return false;
-    const key = messageId
-      ? `${this.fingerprint(groupId, userId, text)}|mid:${messageId}`
-      : this.fingerprint(groupId, userId, text);
-    const seen = this.relayFingerprints.get(key);
-    if (seen && Date.now() - seen < this.relayDedupWindowMs) return true;
-    this.relayFingerprints.set(key, Date.now());
-    this.pruneFingerprints();
-    return false;
   }
 
   getOneBotStatus() {
@@ -428,12 +429,35 @@ export class Bridge {
     return Object.fromEntries(this.groupNamesByRealId);
   }
 
+  getNameMaps() {
+    const groupNamesRaw = String(this.store.config.groupNames ?? '');
+    const memberNamesRaw = String(this.store.config.memberNames ?? '');
+    if (this.nameMaps.groupNamesRaw !== groupNamesRaw) {
+      this.nameMaps.groupNamesRaw = groupNamesRaw;
+      this.nameMaps.groupMap = parseNameMap(groupNamesRaw, '群名称映射');
+    }
+    if (this.nameMaps.memberNamesRaw !== memberNamesRaw) {
+      this.nameMaps.memberNamesRaw = memberNamesRaw;
+      this.nameMaps.memberMap = parseNameMap(memberNamesRaw, '成员显示名映射');
+    }
+    return this.nameMaps;
+  }
+
+  getAllowedGroups() {
+    const raw = String(this.store.config.allowedGroups ?? '');
+    if (this.allowedGroupsRaw !== raw) {
+      this.allowedGroupsRaw = raw;
+      this.allowedGroupList = raw.split(',').filter(Boolean);
+    }
+    return this.allowedGroupList;
+  }
+
   /**
    * 官方 Bot 只给群 OpenID，OneBot 给的是真实群号。
    * 优先级：手工配置映射 > 监听 Bot 学到的群名 > 空。
    */
   realGroupNameFor(groupOpenid) {
-    const configured = parseNameMap(this.store.config.groupNames, '群名称映射').get(groupOpenid);
+    const configured = this.getNameMaps().groupMap.get(groupOpenid);
     if (configured) return configured;
     if (!this.isOneBotActive()) return '';
 
@@ -465,22 +489,20 @@ export class Bridge {
    */
   inferGroupIdByMember(groupOpenid) {
     const cutoff = Date.now() - this.relayDedupWindowMs;
+    const matches = [];
     for (const [realGroupId, index] of this.membersByGroupId) {
-      // 这个群若已归属别的群 OpenID，跳过，避免张冠李戴
       const owner = this.realGroupToOpenid.get(realGroupId);
       if (owner && owner !== groupOpenid) continue;
-      // 用该群最近上报的显示名去撞成员名单
       const names = this.recentOneBotMessages
         .filter(item => item.at >= cutoff && item.groupId === realGroupId)
         .map(item => item.displayName);
-      if (names.some(name => index.byCard.has(name) || index.byNick.has(name))) {
-        this.openidGroupToReal.set(groupOpenid, realGroupId);
-        this.realGroupToOpenid.set(realGroupId, groupOpenid);
-        this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 由成员重合推断为真实群号 ${realGroupId}`);
-        return realGroupId;
-      }
+      if (names.some(name => index.byCard.has(name) || index.byNick.has(name))) matches.push(realGroupId);
     }
-    return '';
+    if (matches.length !== 1) return '';
+    const realGroupId = matches[0];
+    this.linkGroupMapping(groupOpenid, realGroupId);
+    this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 由成员重合推断为真实群号 ${realGroupId}`);
+    return realGroupId;
   }
 
   /**
@@ -493,20 +515,18 @@ export class Bridge {
     // 关闭 OneBot 时不参与任何推断，保持旧版行为
     if (!this.isOneBotActive()) return '';
     if (!groupOpenid || !realQQ) return '';
-    // 已经确定就不重复推断
     if (this.openidGroupToReal.has(groupOpenid)) return this.openidGroupToReal.get(groupOpenid);
+    const matches = [];
     for (const [realGroupId, index] of this.membersByGroupId) {
       const owner = this.realGroupToOpenid.get(realGroupId);
       if (owner && owner !== groupOpenid) continue;
-      const member = index.members.find(m => m.userId === String(realQQ));
-      if (member) {
-        this.openidGroupToReal.set(groupOpenid, realGroupId);
-        this.realGroupToOpenid.set(realGroupId, groupOpenid);
-        this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 由成员 QQ ${realQQ} 反推为真实群号 ${realGroupId}`);
-        return realGroupId;
-      }
+      if (index.members.some(m => m.userId === String(realQQ))) matches.push(realGroupId);
     }
-    return '';
+    if (matches.length !== 1) return '';
+    const realGroupId = matches[0];
+    this.linkGroupMapping(groupOpenid, realGroupId);
+    this.store.audit('onebot-link', `群 OpenID ${groupOpenid} 由成员 QQ ${realQQ} 反推为真实群号 ${realGroupId}`);
+    return realGroupId;
   }
 
   start() {
@@ -533,8 +553,7 @@ export class Bridge {
   restart() {
     this.stop();
     this.stopped = false;
-    this.pluginExchange = this.createPluginExchange();
-    this.onebot?.restart({
+    this.onebot?.configure({
       enabled: this.store.config.onebotEnabled === true,
       token: this.store.config.onebotToken ?? '',
       forwardUrl: this.store.config.onebotUrl ?? ''
@@ -543,12 +562,12 @@ export class Bridge {
   }
 
   exchangePluginChat(input) {
+    this.pluginConnection.observe();
     const response = this.pluginExchange.exchange(input);
     this.observeAqqbotSnapshot(input?.aqqbotSnapshot);
     this.observeServerLogs(input?.serverLogs);
     this.observePluginVersion(input?.pluginVersion);
     const explicitStop = input.sent.some(item => item?.kind === 'stop');
-    this.pluginConnection.observe();
     if (!explicitStop) {
       this.cancelPluginOffline();
       if (this.lastServerNotice.status !== 'online') {
@@ -563,17 +582,23 @@ export class Bridge {
 
   observePluginVersion(value) {
     if (value === undefined) return;
-    if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(value)) throw new Error('插件版本格式无效');
+    if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/.test(value)) {
+      try { this.store.audit('plugin-version-invalid', String(value).slice(0, 80)); } catch {}
+      return;
+    }
     this.pluginVersion = value;
   }
 
   observeAqqbotSnapshot(input) {
     if (!input || typeof input !== 'object') return;
     const captured = Number(input.capturedAt);
+    const capturedAt = Number.isFinite(captured) && captured > 0 && captured <= 8640000000000000
+      ? new Date(captured).toISOString()
+      : null;
     const base = {
       available: input.available === true,
       reason: typeof input.reason === 'string' ? input.reason.slice(0, 160) : '',
-      capturedAt: Number.isFinite(captured) && captured > 0 ? new Date(captured).toISOString() : null,
+      capturedAt,
       receivedAt: new Date().toISOString(),
       rows: []
     };
@@ -590,13 +615,22 @@ export class Bridge {
       base.rows.sort((a, b) => a.qq.localeCompare(b.qq));
     }
     this.aqqbotDatabase = base;
+    const playerQQ = new Map();
+    for (const row of base.rows) {
+      for (const player of row.players) if (!playerQQ.has(player)) playerQQ.set(player, row.qq);
+    }
+    this.playerQQIndex = playerQQ;
   }
 
   getAqqbotDatabase() {
+    const owners = new Map();
+    for (const [openid, user] of Object.entries(this.store.state.users ?? {})) {
+      if (user?.qq && !owners.has(user.qq)) owners.set(user.qq, openid);
+    }
     return {
       ...this.aqqbotDatabase,
-      connected: this.pluginExchange.lastSeen > Date.now() - 10000,
-      rows: this.aqqbotDatabase.rows.map(item => ({ ...item, openid: this.store.qqOwner(item.qq) || '' }))
+      connected: this.pluginConnection.lastSeen > Date.now() - 10000,
+      rows: this.aqqbotDatabase.rows.map(item => ({ ...item, openid: owners.get(item.qq) ?? '' }))
     };
   }
 
@@ -619,7 +653,7 @@ export class Bridge {
   getServerLogs() {
     return {
       enabled: this.store.config.serverLogEnabled === true,
-      connected: this.pluginExchange.lastSeen > Date.now() - 10000,
+      connected: this.pluginConnection.lastSeen > Date.now() - 10000,
       lines: this.serverLogs.slice()
     };
   }
@@ -664,6 +698,7 @@ export class Bridge {
   async sendReply(event, message) {
     if (!this.bot) throw new Error('QQ 官方 Bot 未连接');
     await this.bot.sendText(event.replyTarget, message);
+    this.rememberOwnSentText(message, event?.replyTarget?.targetId ?? '');
   }
 
   async sendMcChatToQq(chat) {
@@ -693,25 +728,36 @@ export class Bridge {
 
     // 2. 快照
     const fromSnapshot = this.qqForPlayer(name);
+    if (fromSnapshot) {
+      this.playerQQCache.set(name, { qq: fromSnapshot, at: Date.now() });
+      return fromSnapshot;
+    }
 
-    // 3. 实时查询（快照没查到才查，避免不必要的 RCON 压力）
-    let qq = fromSnapshot;
-    if (!qq) {
+    const inflight = this.playerQQInflight.get(name);
+    if (inflight) return inflight;
+    const lookup = (async () => {
+      let qq = '';
       try {
         const owner = await queryPlayerOwner(this.store.config, this.rcon, name);
         if (owner) qq = String(owner);
       } catch (error) {
         this.store.audit('player-qq-lookup-error', `查询玩家 ${name} 的 QQ 失败：${error.message}`);
       }
-    }
+      this.playerQQCache.set(name, { qq, at: Date.now() });
+      if (this.playerQQCache.size > 500) {
+        const oldest = [...this.playerQQCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+        if (oldest) this.playerQQCache.delete(oldest[0]);
+      }
+      return qq;
+    })();
+    this.playerQQInflight.set(name, lookup);
+    try { return await lookup; }
+    finally { if (this.playerQQInflight.get(name) === lookup) this.playerQQInflight.delete(name); }
+  }
 
-    // 查到就缓存，查不到也缓存短时间，避免刷屏时反复打 RCON
-    this.playerQQCache.set(name, { qq, at: Date.now() });
-    if (this.playerQQCache.size > 500) {
-      const oldest = [...this.playerQQCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-      if (oldest) this.playerQQCache.delete(oldest[0]);
-    }
-    return qq;
+  invalidatePlayerQQCache() {
+    this.playerQQCache.clear();
+    this.playerQQInflight.clear();
   }
 
   /**
@@ -721,10 +767,7 @@ export class Bridge {
   qqForPlayer(player) {
     const name = String(player ?? '').trim();
     if (!name) return '';
-    for (const row of this.aqqbotDatabase.rows ?? []) {
-      if (Array.isArray(row.players) && row.players.includes(name)) return row.qq;
-    }
-    return '';
+    return this.playerQQIndex.get(name) ?? '';
   }
 
   async sendMcPresenceToQq(event) {
@@ -741,7 +784,8 @@ export class Bridge {
       this.cancelPluginOffline();
       return;
     }
-    this.schedulePluginOffline(this.pluginConnection.lastSeen);
+    this.cancelPluginOffline();
+    this.schedulePluginOffline(this.pluginConnection.lastSeen, this.pluginOfflineConfirmMs, 'stop');
   }
 
   cancelPluginOffline() {
@@ -750,15 +794,18 @@ export class Bridge {
   }
 
   checkPluginConnection(now = Date.now()) {
-    if (this.pluginConnection.check(now) === 'offline') this.schedulePluginOffline(this.pluginConnection.lastSeen);
+    if (this.pluginConnection.check(now) === 'offline') {
+      this.schedulePluginOffline(this.pluginConnection.lastSeen, this.pluginHeartbeatOfflineConfirmMs, 'heartbeat');
+    }
   }
 
-  schedulePluginOffline(lastSeen) {
+  schedulePluginOffline(lastSeen, graceMs = this.pluginOfflineConfirmMs, reason = 'stop') {
     if (this.pluginStopTimer) return;
-    const remaining = Math.max(0, lastSeen + this.pluginOfflineConfirmMs - Date.now());
+    const remaining = Math.max(0, lastSeen + graceMs - Date.now());
     this.pluginStopTimer = setTimeout(() => {
       this.pluginStopTimer = null;
       if (this.stopped || this.pluginConnection.lastSeen > lastSeen) return;
+      try { this.store.audit('plugin-offline', `原因：${reason}；最后心跳 ${lastSeen ? new Date(lastSeen).toISOString() : '无'}`); } catch {}
       void this.sendMcServerStatusToQq('offline').catch(error => this.store.audit('mc-server-status-error', error.message));
     }, remaining);
     this.pluginStopTimer.unref?.();
@@ -785,9 +832,12 @@ export class Bridge {
   }
 
   async sendToAllowedGroups(content, auditCategory) {
-    this.rememberOwnSentText(content);
-    for (const targetId of this.store.config.allowedGroups?.split(',').filter(Boolean) ?? []) {
-      try { await this.bot.sendText({ scope: 'group', targetId }, content); }
+    if (!this.bot || this.status !== '已连接') throw new Error('QQ 官方 Bot 未连接');
+    for (const targetId of this.getAllowedGroups()) {
+      try {
+        await this.bot.sendText({ scope: 'group', targetId }, content);
+        this.rememberOwnSentText(content, targetId);
+      }
       catch (error) { this.store.audit(auditCategory, `群 ${targetId}：${error.message}`); }
     }
   }
@@ -796,7 +846,7 @@ export class Bridge {
     if (event.kind !== 'group' || event.senderIsBot === true || event.raw?.author?.bot === true) return;
     const openid = String(event.senderId ?? '');
     const group = String(event.groupOpenid ?? '');
-    const allowed = this.store.config.allowedGroups?.split(',').filter(Boolean) ?? [];
+    const allowed = this.getAllowedGroups();
     if (group && !allowed.includes(group) && !this.discoveredGroups.has(group)) {
       this.discoveredGroups.add(group);
       this.store.audit('group-discovered', `发现 QQ 群 OpenID：${group}；请填到“修改信息”允许群列表`);
@@ -804,6 +854,7 @@ export class Bridge {
     if (!allowed.includes(group) || !/^[A-Za-z0-9_-]{5,128}$/.test(openid) || event.replyTarget?.scope !== 'group' || event.replyTarget.targetId !== group) return;
     if (this.store.config.qqToMcEnabled === true && !this.discoveredSenders.has(openid)) {
       this.discoveredSenders.add(openid);
+      if (this.discoveredSenders.size > 10000) this.discoveredSenders.delete(this.discoveredSenders.values().next().value);
       this.store.audit('chat-sender-discovered', `群 ${group}，成员 OpenID ${openid}，官方 Bot 昵称：${String(event.senderName ?? '未知').slice(0, 48)}`);
     }
     const originalMessage = String(event.content ?? '').replace(/^<@!?[^>]+>\s*/, '').trim();
@@ -816,6 +867,7 @@ export class Bridge {
     const isCommand = /^\/(?:qqbind|qqunbind|mcbind|mcunbind|mcunallbind|mymc|motd|list|tps|status)(?:\s|$)/i.test(message);
     const commandLike = /^[\u200B-\u200D\u2060\uFEFF]*[\/／]/u.test(message);
     const isChat = !isCommand && !isCode && message && !commandLike;
+    this.learnFromOfficial(openid, group, String(event.senderName ?? ''), normalCommandText(message));
     if (!isCommand && !isCode && !module && !(isChat && this.store.config.qqToMcEnabled === true)) return;
     if (event.messageId) {
       const key = `${group}:${event.messageId}`;
@@ -823,27 +875,17 @@ export class Bridge {
       this.seen.set(key, Date.now());
       for (const [id, at] of this.seen) if (at < Date.now() - 10 * 60 * 1000) this.seen.delete(id);
     }
-    // 学习必须在分支之前：用户可能直接发 /qqbind 或别的命令，而不是普通聊天。
-    // 只在聊天分支里学，会导致「第一次用命令的人永远学不到真实 QQ 号」。
-    const learnedRealQQ = this.learnFromOfficial(openid, group, String(event.senderName ?? ''), normalCommandText(message));
     if (isChat && !module) {
       try {
         // 优先用监听 Bot 的显示名与群名，官方 Bot 只作兜底。
         // 监听源看得到群名片，比官方 Bot 的昵称准确得多。
-        const memberMap = parseNameMap(this.store.config.memberNames, '成员显示名映射');
-        const groupMap = parseNameMap(this.store.config.groupNames, '群名称映射');
+        const { memberMap, groupMap } = this.getNameMaps();
         const sentDisplayName = event.senderName;
         const userName = memberMap.get(openid)
           || this.displayNameFromOneBot(openid, sentDisplayName)
           || sentDisplayName
           || this.store.state.users[openid]?.qq
           || '群友';
-        const groupName = groupMap.get(group) || this.realGroupNameFor(group) || 'QQ群';
-        // 双源去重：带上 messageId，避免「连续两次相同内容」被误杀
-        if (learnedRealQQ && this.isDuplicateRelay(group, learnedRealQQ, message, event.messageId ?? '')) {
-          this.store.audit('qq-to-mc-dedup', `群 ${group}：同一条消息已由监听 Bot 转发，跳过官方 Bot 副本`);
-          return;
-        }
         // 解析这个人的真实 QQ 号：走缓存、登记、成员名单，不打 RCON
         const userQQ = this.resolveQQForOpenid(openid, group, sentDisplayName);
         // 拿到 QQ 后立刻反推群号，这样群名一次就能定下来
@@ -865,6 +907,10 @@ export class Bridge {
     const now = Date.now();
     if (!ownCode && !module && (this.lastCommand.get(openid) ?? 0) + 1500 > now) return;
     this.lastCommand.set(openid, now);
+    if (this.lastCommand.size > 5000) {
+      for (const [id, at] of this.lastCommand) if (at + 1500 < now) this.lastCommand.delete(id);
+      while (this.lastCommand.size > 5000) this.lastCommand.delete(this.lastCommand.keys().next().value);
+    }
     const commandName = isCode ? 'qqconfirm' : message.split(/\s+/)[0].slice(1).toLowerCase();
     const qqBefore = this.store.state.users[openid]?.qq;
     let logStatus = '已回复';
@@ -894,7 +940,8 @@ export class Bridge {
             : '（服务器未提供玩家名单）';
           reply = `🎮 服务器状态\n👥 当前在线：${info.online ?? '?'} 人（上限 ${info.max ?? '?'} 人）\n🧑 在线玩家：${names}\n\n📢 服务器介绍：\n${info.motd || '（空）'}${info.version ? `\n\n🧩 游戏版本：${info.version}` : ''}`;
         } else if (/^\/list\s*$/i.test(message)) {
-          let names = parseOnlineList(await this.rcon(this.store.config, 'list'));
+          let names = null;
+          try { names = parseOnlineList(await this.rcon(this.store.config, 'list')); } catch {}
           if (!names) {
             const info = await this.motd(this.store.config);
             if (Number.isInteger(info.online) && info.players?.length === info.online) names = info.players;
@@ -1011,7 +1058,12 @@ export class Bridge {
     }
     if (!qq || !QQ_FORMAT.test(qq)) return '格式：/qqbind <你的QQ号>，例如 /qqbind 36000000';
     if (this.store.qqOwner(qq, openid)) return '这个 QQ 号已被登记，请联系管理员核对。';
-    const pending = { group, qq, code: `BIND-${randomBytes(3).toString('hex').toUpperCase()}`, expires: Date.now() + CODE_TTL };
+    const now = Date.now();
+    if (this.pending.size > 1000) {
+      for (const [id, item] of this.pending) if (item.expires < now) this.pending.delete(id);
+      if (this.pending.size > 1000) return '登记请求过多，请稍后重试。';
+    }
+    const pending = { group, qq, code: `BIND-${randomBytes(3).toString('hex').toUpperCase()}`, expires: now + CODE_TTL };
     this.pending.set(openid, pending);
     const note = this.isOneBotActive()
       ? '\n提示：监听 Bot 尚未识别到你的 QQ 号，稍后在群里发一句话再来一次 /qqbind 可自动完成。'
@@ -1030,15 +1082,24 @@ export class Bridge {
     return 'QQ 号 ' + pending.qq + ' 已登记。现在可以发送 /mymc 查询名下玩家，也可以使用 /mcbind <玩家名>、/mcunbind <玩家名>、/motd 或 /list。之前被拦下的命令请重新发送。';
   }
 
+  assertIdentityConsistent(openid, qq) {
+    if (!this.isOneBotActive()) return;
+    const real = this.realQQForOpenid(openid);
+    if (real && real !== String(qq)) throw new Error(`监听 Bot 识别到真实 QQ ${real}，与当前登记 QQ ${qq} 不一致，请联系管理员核对登记`);
+  }
+
   async unbindQq(openid, message) {
     if (!/^\/qqunbind\s*$/i.test(message)) return '格式：/qqunbind';
     const user = this.store.state.users[openid];
     const qq = user?.qq;
     if (!qq) return '请先发送 /qqbind <QQ号> 完成登记。';
+    this.assertIdentityConsistent(openid, qq);
     const result = await queryAqqbot(this.store.config, this.rcon, 'qq', qq);
     if (result.players.length) return 'AQQBot 中仍有 ' + result.players.length + ' 个玩家绑定：' + result.players.join('、') + '。请先用 /mcunbind 或 /mcunallbind 解除。';
     this.assertRegistrationCurrent(openid, user);
     this.store.unregister(openid);
+    this.forgetRealQQ(openid);
+    this.invalidatePlayerQQCache();
     this.store.audit('qq-unbind', 'OpenID ' + openid + ' 解除了 QQ 登记');
     return 'QQ 号已解除登记。再次使用业务命令前，请先发送 /qqbind <QQ号>。';
   }
@@ -1048,6 +1109,7 @@ export class Bridge {
     const user = this.store.state.users[openid];
     const qq = user?.qq;
     if (!qq) return '请先发送 /qqbind <QQ号> 完成登记。';
+    this.assertIdentityConsistent(openid, qq);
     const result = await queryAqqbot(this.store.config, this.rcon, 'qq', qq);
     this.assertRegistrationCurrent(openid, user);
     return result.players.length ? 'QQ ' + qq + ' 名下的 MC 玩家（' + result.players.length + '）：' + result.players.join('、') : 'QQ ' + qq + ' 名下暂无 MC 玩家。';
@@ -1059,6 +1121,7 @@ export class Bridge {
     const user = this.store.state.users[openid];
     const qq = user?.qq;
     if (!qq) return '请先发送 /qqbind <QQ号> 完成登记。';
+    this.assertIdentityConsistent(openid, qq);
     const player = safePlayer(match[1]);
     const owner = await queryPlayerOwner(this.store.config, this.rcon, player);
     if (owner === qq) return '玩家 ' + player + ' 已在 AQQBot 中绑定当前 QQ 号。';
@@ -1071,6 +1134,7 @@ export class Bridge {
       return '服务器未确认绑定。服务器响应：' + result.slice(0, 500);
     }
     const confirmed = await queryPlayerOwner(this.store.config, this.rcon, player);
+    this.invalidatePlayerQQCache();
     this.store.audit('mc-bind', '群 ' + group + '，QQ ' + qq + '，玩家 ' + player + '：AQQBot 绑定命令已执行');
     return confirmed === qq
       ? '已为玩家 ' + player + ' 发送 AQQBot 绑定命令，使用的 QQ 号是 ' + qq + '。' + (result ? '\n服务器响应：' + result.slice(0, 500) : '\n服务器查询已确认绑定。')
@@ -1084,6 +1148,7 @@ export class Bridge {
     const user = this.store.state.users[openid];
     const qq = user?.qq;
     if (!qq) return '请先发送 /qqbind <QQ号> 完成登记。';
+    this.assertIdentityConsistent(openid, qq);
     const owner = await queryPlayerOwner(this.store.config, this.rcon, player);
     if (owner === null) return 'AQQBot 中没有玩家 ' + player + ' 的绑定。';
     if (owner !== qq) return '玩家 ' + player + ' 不属于当前 QQ 号，未发送解绑命令。';
@@ -1095,6 +1160,7 @@ export class Bridge {
       return '服务器未明确确认解绑。服务器响应：' + (result || '（无返回文字）') + '。请管理员在 RCON 终端核对。';
     }
     const after = await queryPlayerOwner(this.store.config, this.rcon, player);
+    this.invalidatePlayerQQCache();
     if (after !== null) return 'AQQBot 回复成功，但查询显示玩家 ' + player + ' 仍有绑定，请管理员核对。';
     this.store.audit('mc-unbind', '群 ' + group + '，QQ ' + qq + '，玩家 ' + player + '：服务器确认解绑');
     return '玩家 ' + player + ' 已从当前 QQ 号解绑；其他玩家和 QQ 登记保持不变。服务器响应：' + result.slice(0, 500);
@@ -1105,6 +1171,7 @@ export class Bridge {
     const user = this.store.state.users[openid];
     const qq = user?.qq;
     if (!qq) return '请先发送 /qqbind <QQ号> 完成登记。';
+    this.assertIdentityConsistent(openid, qq);
     const players = (await queryAqqbot(this.store.config, this.rcon, 'qq', qq)).players;
     if (!players.length) return '当前 QQ 号没有已绑定的 MC 玩家。';
     const done = [];
@@ -1118,6 +1185,7 @@ export class Bridge {
       }
       done.push(player);
     }
+    this.invalidatePlayerQQCache();
     return '已逐条解绑 ' + done.length + ' 个玩家：' + done.join('、') + '。QQ 号登记仍保留。';
   }
 }

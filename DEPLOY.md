@@ -20,7 +20,8 @@ cd "$HOME/mc-qq-bridge"
 npm ci --omit=dev
 npm test
 chmod 700 data
-chmod 600 data/*
+find data -type d -exec chmod 700 {} +
+find data -type f -exec chmod 600 {} +
 ```
 
 完整包虽然带有本机 `node_modules`，但上传到 Linux 后仍须运行 `npm ci`，按包内的 `package-lock.json` 重装适用于**服务器系统**的依赖；此操作不会删除 `data/`。测试通过后再设置长期运行。
@@ -74,11 +75,11 @@ ssh -N -L 127.0.0.1:2556:127.0.0.1:2556 your_login_user@your_server_address
 5. 管理员可在「玩家日志」查看分类记录，在「RCON 终端」手动发令并查看管理员执行日志。
 6. 聊天互通只通过独立插件连接。在修改信息页确认插件 Key 已配置并测试插件连接，再分别开启 QQ → MC 与 MC → QQ；RCON 继续用于 AQQBot 白名单和管理员终端。
 
-双向聊天只支持独立插件。把包内 `minecraft-plugin/target/szydmc-chat-bridge-1.1.3.jar` 放进 MC 服务端的 `plugins/`，把 `minecraft-plugin/server-config/config.yml` 放进 MC 服务端的 `plugins/SZYDMCChatBridge/`，然后重启 MC。第二个文件已预填插件 Key，不必再手抄；不要把它公开。插件默认连接同一台机器上的 `127.0.0.1:2556`；若 MC 和后台在不同机器或不同容器内，必须先设置可达的安全隧道或 HTTPS 反向代理，并修改插件配置的 `bridge-url`。网页里点“测试插件连接”确认连通。插件不会替换当前 AQQBot 白名单，也不会同步其旧绑定文件。
+双向聊天只支持独立插件。把包内 `minecraft-plugin/target/szydmc-chat-bridge-1.1.6.jar` 放进 MC 服务端的 `plugins/`，把 `minecraft-plugin/server-config/config.yml` 放进 MC 服务端的 `plugins/SZYDMCChatBridge/`，然后重启 MC。第二个文件已预填插件 Key，不必再手抄；不要把它公开。插件默认连接同一台机器上的 `127.0.0.1:2556`；若 MC 和后台在不同机器或不同容器内，必须先设置可达的安全隧道或 HTTPS 反向代理，并修改插件配置的 `bridge-url`。网页里点“测试插件连接”确认连通。插件不会替换当前 AQQBot 白名单，也不会同步其旧绑定文件。
 
 本版插件会把玩家进服、退服推送到允许的 QQ 群，且只发单行消息，例如 `[服务器] Alice 离开了服务器`，不附加在线名单。在线人数与名单改由 QQ 的 `/list` 回复显示，例如 `在线玩家（1）：Alice`，零人时为 `在线玩家（0）：无`。进出服播报跟随网页的 **MC → QQ** 开关；不包含 QQ 入群／退群播报。8.7.0 必须更新后台程序；整库页依赖桥接插件只读 AQQBot data.yml 并同步快照。
 
-后台现会利用现有插件每秒的心跳播报 `[服务器] MC 服务器已上线`；若连续约 30 秒无心跳，则播报 `[服务器] MC 服务器已离线（可能是关服或插件连接中断）`。两种通知也跟随 **MC → QQ** 开关。如果已安装上一版带进出服播报的 JAR，这次只需更新并重启后台，原 JAR 与插件 Key 不必更改。后台自身停机时无法发送离线通知；后台重启后第一次收到心跳会再次播报“上线”。8.0 启动时会备份旧状态文件，移除本地 MC 绑定快照和导入占位用户，保留已登记的 OpenID→QQ。后台查询和群命令直接读取 AQQBot。更新远程服务器时先备份并保留其当前 data 目录，不要用本压缩包的本机副本覆盖远程数据。
+后台现会利用现有插件每秒的心跳播报 `[服务器] MC 服务器已上线`；插件主动停止时约 90 秒后播报离线，异常中断则需连续约 3 分钟无心跳才播报 `[服务器] MC 服务器已离线（可能是关服或插件连接中断）`，避免服务器卡顿造成误报。两种通知也跟随 **MC → QQ** 开关。如果已安装上一版带进出服播报的 JAR，这次只需更新并重启后台，原 JAR 与插件 Key 不必更改。后台自身停机时无法发送离线通知；后台重启后第一次收到心跳会再次播报“上线”。8.0 启动时会备份旧状态文件，移除本地 MC 绑定快照和导入占位用户，保留已登记的 OpenID→QQ。后台查询和群命令直接读取 AQQBot。更新远程服务器时先备份并保留其当前 data 目录，不要用本压缩包的本机副本覆盖远程数据。
 
 这些连接信息**已经在完整私有压缩包的 `data/` 中**。部署完成后，删除服务器上传目录里多余的私有 ZIP 副本，并**单独、安全地备份服务器上的整个 `data/` 目录**，尤其是 `master.key`：丢失它就无法解密已有配置和日志。不要把完整包或 `data/` 放进公开网盘或 Git 仓库。
 
@@ -123,7 +124,7 @@ QQ 官方 Bot 可配置英文命令及中文别名，包含 /绑定、/解绑、
 
 ## 8.8.2 通用模块与每日签到
 
-先更新服务端，再登录后台的模块中心上传 `daily-checkin-money-1.2.0.mcqqmodule`。已有 1.0.0 或 1.1.0 可直接升级同一模块 ID，签到记录、设置和开关会保留。`/qd add 玩家名` 无需先查询，发放前仍核对 QQ 登记与 AQQBot 玩家归属。模块页可独立开关、配置奖励范围与经济命令模板。插件 JAR 仍为 1.1.3。上传之前确认经济插件支持模板中的 RCON 命令。
+先更新服务端，再登录后台的模块中心上传 `daily-checkin-money-1.2.3.mcqqmodule`。已有 1.0.0、1.1.0、1.2.0、1.2.1 或 1.2.2 可直接升级同一模块 ID，签到记录、设置和开关会保留。`/qd add 玩家名` 无需先查询，发放前仍核对 QQ 登记与 AQQBot 玩家归属。模块页可独立开关、配置奖励范围与经济命令模板。插件 JAR 为 1.1.6。上传之前确认经济插件支持模板中的 RCON 命令。
 
 ## Docker 镜像（GitHub Actions 自动构建）
 
@@ -160,13 +161,16 @@ git push origin main
 后台只监听 `127.0.0.1:2556`，所以容器必须用 host 网络运行，仍按第 3 节用 SSH 隧道访问：
 
 ```sh
+mkdir -p "$HOME/mc-qq-bridge/data"
+sudo chown -R 1000:1000 "$HOME/mc-qq-bridge/data"
+chmod 700 "$HOME/mc-qq-bridge/data"
 docker run -d --name mc-qq-bridge --network host \
   -v "$HOME/mc-qq-bridge/data:/app/data" \
   --restart unless-stopped \
   <DOCKERHUB_USERNAME>/mc-qq-bridge:latest
 ```
 
-`data/` 必须挂载到宿主机持久化，否则重启后配置与 `master.key` 会丢失。
+`data/` 必须挂载到宿主机持久化，否则重启后配置与 `master.key` 会丢失。镜像内以 UID/GID `1000` 的 `node` 用户运行；如果宿主机目录由 root 创建，必须先按上面的命令改归属，否则容器无法创建密钥和状态文件。
 
 ## 8.9.0 双 Bot 监听（可选）
 
@@ -184,9 +188,9 @@ docker run -d --name mc-qq-bridge --network host \
 启用后：
 
 - 用户在群里正常发言，平台即可把 OpenID 与真实 QQ 号对应起来，`/qqbind` 手填与二次确认可跳过。
-- 两个 Bot 同时收到的同一条消息会按「内容 + 发送者 + 时间窗」去重，不会在 MC 里刷两遍。
+- 监听 Bot 只参与识别，不转发聊天；MC 里的群聊始终只由官方 Bot 提供，不会重复。
 - 群名称自动取自监听 Bot；管理员手工配置的「群名称映射」仍然优先。
 
-**关闭监听 Bot 会完整退回旧版行为**：不学习真实 QQ 号、不去重、群名只认手工配置、登记恢复 `/qqbind` + 确认码流程。未启用时 `/api/onebot/ws` 直接拒绝连接，不对外开放。
+**关闭监听 Bot 会完整退回旧版行为**：不学习真实 QQ 号、不使用监听 Bot 的群名和成员名单、登记恢复 `/qqbind` + 确认码流程。未启用时 `/api/onebot/ws` 直接拒绝连接，不对外开放。
 
 安全提示：后台仍只监听 `127.0.0.1:2556`。外挂框架若跑在别的机器或容器里，需要先建立 SSH 隧道或安全的 WebSocket 反向代理，不要直接把它暴露到公网。

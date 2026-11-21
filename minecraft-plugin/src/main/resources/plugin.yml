@@ -1,5 +1,5 @@
 name: SZYDMCChatBridge
-version: '1.1.4'
+version: '1.1.6'
 main: dev.szydmc.chatbridge.ChatBridgePlugin
 api-version: '1.13'
 description: Bukkit-compatible player chat bridge for the MC x QQ management platform.

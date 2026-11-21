@@ -29,6 +29,31 @@ test('QQ/OpenID 后台列表从当前登记状态读取并随登记、解除更�
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('数字类型 QQ 统一按字符串登记并可被列表和归属查询识别', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-registrations-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_NUMERIC_QQ', 36000000, 'GROUP_OPENID_123');
+    assert.equal(store.listRegistrations().find(item => item.openid === 'USER_NUMERIC_QQ').qq, '36000000');
+    assert.equal(store.qqOwner('36000000'), 'USER_NUMERIC_QQ');
+    assert.throws(() => store.register('USER_OTHER_QQ', '36000000', 'GROUP_OPENID_123'), /已被其他用户登记/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('登记变更会清除此前的真实 QQ 关联', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-registrations-'));
+  try {
+    const store = new Storage(dir);
+    store.register('USER_OPENID_123', '36000000', 'GROUP_OPENID_123');
+    store.rememberRealQQ('USER_OPENID_123', '36000000');
+    store.updateRegistration('USER_OPENID_123', 'USER_OPENID_123', '36000002');
+    assert.equal(store.getRealQQ('USER_OPENID_123'), '');
+    store.rememberRealQQ('USER_OPENID_123', '36000002');
+    store.unregister('USER_OPENID_123');
+    assert.equal(store.getRealQQ('USER_OPENID_123'), '');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('管理员修改 QQ 与 OpenID 后立即生效并持久化，重复和无效值被拒绝', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-registrations-'));
   try {

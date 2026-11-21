@@ -1,8 +1,8 @@
 import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, copyFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-const DATA_DIR = join(process.cwd(), 'data');
+const DATA_DIR = process.env.MCQQ_DATA_DIR ? resolve(process.env.MCQQ_DATA_DIR) : join(process.cwd(), 'data');
 
 function readJson(path, fallback) {
   if (!existsSync(path)) return fallback;
@@ -40,6 +40,11 @@ export class Storage {
       this.state.version = 8;
       this.saveState();
     }
+    let normalizedQQ = false;
+    for (const user of Object.values(this.state.users)) {
+      if (user && typeof user.qq === 'number' && /^\d{5,20}$/.test(String(user.qq))) { user.qq = String(user.qq); normalizedQQ = true; }
+    }
+    if (normalizedQQ) this.saveState();
     this.config = this.loadConfig();
     const legacyChatKeys = ['chatTransport', 'mcsmBaseUrl', 'mcsmApiKey', 'mcsmDaemonId', 'mcsmInstanceUuid'];
     if (legacyChatKeys.some(key => key in this.config)) {
@@ -147,37 +152,50 @@ export class Storage {
   }
 
   qqOwner(qq, exceptOpenid = '') {
-    return Object.entries(this.state.users).find(([openid, user]) => openid !== exceptOpenid && user.qq === qq)?.[0] ?? null;
+    const value = String(qq ?? '');
+    return Object.entries(this.state.users).find(([openid, user]) => openid !== exceptOpenid && String(user.qq ?? '') === value)?.[0] ?? null;
   }
 
   register(openid, qq, group, source = 'self-confirmed') {
+    const qqText = String(qq ?? '');
     if (!openid || !/^[A-Za-z0-9_-]{5,128}$/.test(openid) || openid === '__proto__' || openid === 'constructor') throw new Error('OpenID 格式无效');
-    if (!/^\d{5,20}$/.test(qq)) throw new Error('QQ 号格式无效');
-    if (this.qqOwner(qq, openid)) throw new Error('QQ 号已被其他用户登记');
+    if (!/^\d{5,20}$/.test(qqText)) throw new Error('QQ 号格式无效');
+    if (this.qqOwner(qqText, openid)) throw new Error('QQ 号已被其他用户登记');
     if (Object.hasOwn(this.state.users, openid)) throw new Error('此 OpenID 已登记');
     if (typeof group !== 'string' || (group && !/^[A-Za-z0-9_-]{5,128}$/.test(group))) throw new Error('登记群 OpenID 格式无效');
     if (source !== 'self-confirmed' && source !== 'admin-created' && source !== 'admin-edited' && source !== 'onebot-auto') throw new Error('登记来源无效');
-    this.state.users[openid] = { qq, group, registeredAt: new Date().toISOString(), source };
+    this.state.users[openid] = { qq: qqText, group, registeredAt: new Date().toISOString(), source };
     this.saveState();
   }
 
   updateRegistration(currentOpenid, nextOpenid, qq) {
+    const qqText = String(qq ?? '');
     if (typeof currentOpenid !== 'string' || !Object.hasOwn(this.state.users, currentOpenid)) throw new Error('登记记录不存在');
     if (typeof nextOpenid !== 'string' || !/^[A-Za-z0-9_-]{5,128}$/.test(nextOpenid) || nextOpenid === '__proto__' || nextOpenid === 'constructor') throw new Error('OpenID 格式无效');
-    if (typeof qq !== 'string' || !/^\d{5,20}$/.test(qq)) throw new Error('QQ 号格式无效');
+    if (!/^\d{5,20}$/.test(qqText)) throw new Error('QQ 号格式无效');
     if (nextOpenid !== currentOpenid && Object.hasOwn(this.state.users, nextOpenid)) throw new Error('此 OpenID 已登记');
-    if (this.qqOwner(qq, currentOpenid)) throw new Error('QQ 号已被其他用户登记');
+    if (this.qqOwner(qqText, currentOpenid)) throw new Error('QQ 号已被其他用户登记');
     const current = this.state.users[currentOpenid];
-    if (nextOpenid === currentOpenid && current.qq === qq) return;
+    if (nextOpenid === currentOpenid && String(current.qq ?? '') === qqText) return;
     delete this.state.users[currentOpenid];
-    this.state.users[nextOpenid] = { ...current, qq, source: 'admin-edited' };
+    this.state.users[nextOpenid] = { ...current, qq: qqText, source: 'admin-edited' };
+    if (Object.hasOwn(this.state.realQQ ?? {}, currentOpenid)) delete this.state.realQQ[currentOpenid];
+    if (nextOpenid !== currentOpenid && Object.hasOwn(this.state.realQQ ?? {}, nextOpenid)) delete this.state.realQQ[nextOpenid];
     this.saveState();
   }
 
   unregister(openid) {
     if (typeof openid !== 'string' || !Object.hasOwn(this.state.users, openid)) throw new Error('用户尚未登记');
     delete this.state.users[openid];
+    if (Object.hasOwn(this.state.realQQ ?? {}, openid)) delete this.state.realQQ[openid];
     this.saveState();
+  }
+
+  forgetRealQQ(openid) {
+    if (typeof openid !== 'string' || !Object.hasOwn(this.state.realQQ ?? {}, openid)) return false;
+    delete this.state.realQQ[openid];
+    this.saveState();
+    return true;
   }
 
   /* ------------------ OpenID → 真实 QQ 的持久化关联 ------------------ */

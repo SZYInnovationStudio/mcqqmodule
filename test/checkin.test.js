@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -81,6 +81,61 @@ test('直接选择本人绑定玩家，失败不消耗次数，冒领拒绝', as
     assert.match(await manager.handleCommand(mod, { ...user, message: '/签到 add _YuriGamma15' }), /签到成功/);
     assert.deepEqual(calls, ['_YuriGamma15', '_YuriGamma15']);
     assert.match(await manager.handleCommand(mod, user), /今天已签到/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('不同 QQ 并发签到不会互相覆盖记录', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-checkin-'));
+  try {
+    const owners = new Map([['Alice', '36000000'], ['Bob', '36000001']]);
+    const calls = [];
+    const manager = new ModuleManager(dir, { services: {
+      getRegistration: openid => openid === 'USER_A' ? '36000000' : '36000001',
+      queryPlayers: qq => [...owners].filter(([, owner]) => owner === qq).map(([player]) => player),
+      playerOwner: player => owners.get(player),
+      reward: async player => { calls.push(player); await new Promise(resolve => setTimeout(resolve, 20)); return '成功'; }
+    } });
+    await manager.loadInstalled();
+    await manager.install(bundle());
+    const module = manager.commandFor('/qd');
+    const [first, second] = await Promise.all([
+      manager.handleCommand(module, { message: '/qd', openid: 'USER_A', group: 'GROUP_OPENID_123', qq: '36000000' }),
+      manager.handleCommand(module, { message: '/qd', openid: 'USER_B', group: 'GROUP_OPENID_123', qq: '36000001' })
+    ]);
+    assert.match(first, /签到成功/);
+    assert.match(second, /签到成功/);
+    const settings = await manager.dispatch('/api/modules/daily-checkin-money/settings', 'GET', {}, {});
+    assert.equal(settings.body.todayCount, 2);
+    assert.equal(settings.body.records.length, 2);
+    assert.deepEqual(calls.sort(), ['Alice', 'Bob']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('待核对的签到记录会阻止再次领取，旧日期记录会被清理', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-checkin-'));
+  try {
+    const manager = new ModuleManager(dir, { services: {
+      getRegistration: () => '36000000',
+      queryPlayers: () => ['011'],
+      playerOwner: () => '36000000',
+      reward: async () => '成功'
+    } });
+    await manager.loadInstalled();
+    await manager.install(bundle());
+    const module = manager.commandFor('/qd');
+    const today = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
+    const oldDay = new Date(Date.now() + 8 * 3600000 - 3 * 86400000).toISOString().slice(0, 10);
+    writeFileSync(join(dir, 'modules', 'daily-checkin-money', 'state.json'), JSON.stringify({
+      claims: {
+        '36000000': { day: today, player: '011', amount: 500, at: new Date().toISOString(), status: 'pending' },
+        '36000009': { day: oldDay, player: 'Old', amount: 500, at: new Date().toISOString(), status: 'claimed' }
+      },
+      records: []
+    }));
+    const request = { message: '/qd', openid: 'USER_OPENID_123', group: 'GROUP_OPENID_123', qq: '36000000' };
+    assert.match(await manager.handleCommand(module, request), /尚未确认/);
+    const state = JSON.parse(readFileSync(join(dir, 'modules', 'daily-checkin-money', 'state.json'), 'utf8'));
+    assert.equal(state.claims['36000009'], undefined, '三天前的领取记录应被清理');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

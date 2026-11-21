@@ -31,6 +31,8 @@ export async function queryAqqbot(config, rcon, type, value) {
   if (!qqMatch || !namesMatch) throw new Error('AQQBot 未返回可识别的查询结果');
   const qq = qqMatch[1].toLowerCase() === 'null' ? null : qqMatch[1];
   const players = namesMatch[1].trim() ? namesMatch[1].split(/\s*[,，]\s*/).filter(Boolean) : [];
+  if (type === 'qq' && qq !== null && qq !== token) throw new Error('AQQBot 返回的 QQ 号与查询目标不一致');
+  if (type === 'player' && qq !== null && !players.includes(token)) throw new Error('AQQBot 返回的游戏名与查询目标不一致');
   return { qq, players };
 }
 

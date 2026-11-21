@@ -82,6 +82,17 @@ test('模块包拒绝路径穿越、核心文件和错误 SHA-256', () => {
   assert.throws(() => validateModuleBundle(core), /路径无效/);
 });
 
+test('模块命令不能占用内置中文别名', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-modules-alias-'));
+  try {
+    const manager = new ModuleManager(dir);
+    await manager.loadInstalled();
+    const conflict = bundle('alias-conflict');
+    conflict.manifest.commands = ['我的绑定'];
+    await assert.rejects(manager.install(conflict), /已被占用/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('通用 v2 模块支持多服务端文件和完整宿主接口，旧格式仍兼容', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-modules-v2-'));
   try {

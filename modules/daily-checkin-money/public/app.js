@@ -1,3 +1,5 @@
+import { api } from '/common.js';
+
 const id = value => document.getElementById(value);
 const endpoint = '/api/modules/daily-checkin-money';
 async function call(path, options = {}) {
@@ -26,12 +28,27 @@ async function refresh() {
   const root = id('records'); root.replaceChildren();
   for (const row of data.records) {
     const tr = document.createElement('tr');
-    for (const value of [new Date(row.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }), `${row.qq} / ${row.openid}`, row.player, row.amount, row.status]) {
-      const td = document.createElement('td'); td.textContent = String(value); tr.append(td);
+    const fields = [
+      ['时间', new Date(row.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })],
+      ['QQ / OpenID', row.qq + ' / ' + row.openid], ['玩家', row.player],
+      ['金额', row.amount], ['状态', row.status]
+    ];
+    for (const [label, value] of fields) {
+      const td = document.createElement('td');
+      td.dataset.label = label;
+      td.textContent = String(value);
+      tr.append(td);
     }
     root.append(tr);
   }
-  if (!data.records.length) root.textContent = '暂无签到记录';
+  if (!data.records.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.textContent = '暂无签到记录';
+    tr.append(td);
+    root.append(tr);
+  }
 }
 id('settings-form').addEventListener('input', preview);
 id('settings-form').addEventListener('submit', async event => {
@@ -46,12 +63,19 @@ id('test-command').addEventListener('click', async () => {
   } catch (error) { notice(error.message, true); }
 });
 id('enabled').addEventListener('change', async event => {
-  const enabled = event.currentTarget.checked;
+  const control = event.currentTarget;
+  const enabled = control.checked;
+  control.disabled = true;
   try {
     const response = await fetch('/api/modules/toggle', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'daily-checkin-money', enabled }) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error);
     notice(enabled ? '签到已启用。' : '签到已关闭。'); await refresh();
-  } catch (error) { event.currentTarget.checked = !enabled; notice(error.message, true); }
+  } catch (error) { control.checked = !enabled; notice(error.message, true); }
+  finally { control.disabled = false; }
+});
+id('logout').addEventListener('click', async () => {
+  try { await api('logout', { method: 'POST' }); location.href = '/'; }
+  catch (error) { notice(error.message, true); }
 });
 id('refresh').addEventListener('click', () => refresh().catch(error => notice(error.message, true)));
 fetch('/api/auth-state').then(response => response.json()).then(auth => {

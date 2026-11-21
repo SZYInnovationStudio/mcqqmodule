@@ -79,7 +79,7 @@ export function extractText(message) {
   if (typeof message === 'string') return sanitizeText(message);
   if (!Array.isArray(message)) return '';
   const parts = [];
-  for (const segment of message) {
+  for (const segment of message.slice(0, 100)) {
     if (!segment || typeof segment !== 'object') continue;
     if (segment.type === 'text' && typeof segment.data?.text === 'string') parts.push(segment.data.text);
     // 图片 / 表情 用占位符，避免整条消息消失
@@ -168,12 +168,17 @@ export class OneBotLink extends EventEmitter {
     this.setStatus('已停止');
   }
 
-  /** 配置变更后重建连接 */
-  restart(next = {}) {
-    this.stop();
+  /** 只更新配置，不启动连接 */
+  configure(next = {}) {
     if ('token' in next) this.token = String(next.token ?? '');
     if ('forwardUrl' in next) this.forwardUrl = String(next.forwardUrl ?? '');
     if ('enabled' in next) this.enabled = next.enabled === true;
+  }
+
+  /** 配置变更后重建连接 */
+  restart(next = {}) {
+    this.stop();
+    this.configure(next);
     this.start();
   }
 
@@ -193,7 +198,7 @@ export class OneBotLink extends EventEmitter {
       const members = [];
       const byCard = new Map();
       const byNick = new Map();
-      for (const item of list) {
+      for (const item of list.slice(0, 5000)) {
         const userId = String(item?.user_id ?? '');
         if (!/^\d{5,20}$/.test(userId)) continue;
         const card = typeof item?.card === 'string' ? item.card.trim().slice(0, 48) : '';
@@ -269,7 +274,7 @@ export class OneBotLink extends EventEmitter {
       this.setStatus('连接中');
       // Node 的 WebSocket 支持 headers，用来放 Access Token
       const headers = this.token ? { Authorization: `Bearer ${this.token}` } : undefined;
-      const ws = new Impl(this.forwardUrl, headers ? { headers } : undefined);
+      const ws = new Impl(this.forwardUrl, { ...(headers ? { headers } : {}), maxPayload: 4 * 1024 * 1024 });
       this.attach(ws, 'forward');
     } catch (error) {
       this.setStatus('连接失败');
@@ -282,6 +287,10 @@ export class OneBotLink extends EventEmitter {
   accept(ws) {
     if (!this.enabled) {
       try { ws.close(1008, 'OneBot listening disabled'); } catch {}
+      return false;
+    }
+    if (this.forwardUrl) {
+      try { ws.close(1008, 'OneBot forward mode configured'); } catch {}
       return false;
     }
     this.attach(ws, 'reverse');

@@ -16,12 +16,12 @@ const files = await Promise.all(paths.map(async ([source, path]) => {
 const bundle = {
   format: 'bridge-module-v2',
   manifest: {
-    id: 'daily-checkin-money', name: '每日签到', version: '1.2.0',
+    id: 'daily-checkin-money', name: '每日签到', version: '1.2.3',
     description: 'QQ /qd 与 /签到，按 AQQBot 玩家绑定每日发放经济奖励',
     page: 'index.html', entry: 'server/main.mjs', commands: ['qd', '签到'], permissions: ['*']
   }, files
 };
 await mkdir('dist', { recursive: true });
-const path = join('dist', 'daily-checkin-money-1.2.0.mcqqmodule');
+const path = join('dist', `${bundle.manifest.id}-${bundle.manifest.version}.mcqqmodule`);
 await writeFile(path, JSON.stringify(bundle, null, 2));
 console.log(`MODULE_BUNDLE=${path}`);

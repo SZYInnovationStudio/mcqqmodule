@@ -29,7 +29,9 @@ export async function clearAllAqqbot(config, rcon, qqInput) {
       throw error;
     }
   }
-  const remaining = (await queryAqqbot(config, rcon, 'qq', qq)).players;
+  let remaining;
+  try { remaining = (await queryAqqbot(config, rcon, 'qq', qq)).players; }
+  catch (error) { error.removed = removed; throw error; }
   if (remaining.length) {
     const error = new Error('QQ ' + qq + ' 仍有 ' + remaining.length + ' 个绑定，已停止；请刷新后继续处理');
     error.removed = removed;

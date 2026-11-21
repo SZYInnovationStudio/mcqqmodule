@@ -1,21 +1,51 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#e8ede7">
+  <script src="/shell.js"></script>
   <title>AQQBot 绑定管理 · MC × QQ</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/binding-admin.css"><script type="module" src="/binding-admin.js"></script>
 </head>
-<body><main class="shell">
-  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a href="/users">AQQBot 查询</a><a class="active" aria-current="page" href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
-  <div class="page-intro"><div><div class="eyebrow">管理员 · 绑定管理</div><h1>AQQBot 玩家绑定</h1><p>按 QQ 号、OpenID 或玩家名搜索服务器当前绑定；可单行处理，也可勾选后批量处理。</p></div></div>
+<body class="bridge-ui">
+  <a class="skip-link" href="#workspace">跳到主要内容</a>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="MC × QQ 总览">
+        <span class="brand-mark" aria-hidden="true">M<span>×</span>Q</span>
+        <span><strong>MC × QQ</strong><small>桥接管理后台</small></span>
+      </a>
+      <nav id="main-nav" class="nav" aria-label="主导航"></nav>
+      <div class="top-actions">
+        <button class="secondary theme-toggle" data-theme-toggle type="button" aria-label="切换深浅色">
+          <span class="theme-mark" aria-hidden="true"></span><span data-theme-label>深色</span>
+        </button>
+        <div class="account-actions">
+          <span id="current-user" class="local-tag"></span>
+          <button id="logout" class="ghost" type="button">退出</button>
+        </div>
+      </div>
+    </header>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="移动导航"></nav>
+    <main id="workspace" class="workspace" tabindex="-1">
+  <div class="page-intro"><div><h1>AQQBot 玩家绑定</h1><p>按 QQ 号、OpenID 或玩家名搜索服务器当前绑定；可单行处理，也可勾选后批量处理。</p></div></div>
   <section class="panel">
     <form id="search-form" class="binding-search"><label>搜索方式<select id="search-type"><option value="qq">QQ 号</option><option value="openid">OpenID</option><option value="player">玩家名</option></select></label><label>搜索内容<input id="search-value" autocomplete="off" required placeholder="输入 QQ 号"></label><button class="primary" type="submit">搜索 AQQBot</button></form>
     <p id="binding-message" class="message" role="status"></p>
     <div id="binding-result" hidden>
       <div class="binding-summary"><strong id="summary-qq"></strong><span id="summary-openid"></span><span id="summary-count"></span></div>
-      <div class="binding-batch"><span id="selected-count">已选 0 个</span><label>目标 QQ 号<input id="batch-qq" inputmode="numeric" autocomplete="off" placeholder="批量改绑目标 QQ"></label><button id="batch-move" class="secondary" type="button">批量改绑</button><button id="batch-delete" class="ghost danger" type="button">批量解绑</button></div>
-      <div class="binding-scroll"><table class="binding-table"><thead><tr><th><input id="select-all" type="checkbox" aria-label="全选玩家"></th><th>玩家名</th><th>QQ 号</th><th>登记 OpenID</th><th>操作</th></tr></thead><tbody id="binding-rows"></tbody></table></div>
+      <div class="binding-batch"><label class="binding-select-all"><input id="select-all" type="checkbox">全选</label><span id="selected-count">已选 0 个</span><label>目标 QQ 号<input id="batch-qq" inputmode="numeric" autocomplete="off" placeholder="批量改绑目标 QQ"></label><button id="batch-move" class="secondary" type="button">批量改绑</button><button id="batch-delete" class="ghost danger" type="button">批量解绑</button></div>
+      <div class="binding-scroll table-frame" role="region" aria-label="AQQBot 玩家绑定" tabindex="0"><table class="binding-table data-table responsive-table" role="table"><thead><tr><th scope="col">选择</th><th>玩家名</th><th>QQ 号</th><th>登记 OpenID</th><th>操作</th></tr></thead><tbody id="binding-rows"></tbody></table></div>
     </div>
   </section>
   <section class="panel"><h2>手动新增 AQQBot 绑定</h2><p>直接在服务器 AQQBot 中绑定，不会自动新建 QQ/OpenID 登记。</p><form id="create-binding" class="binding-create"><label>QQ 号<input id="new-qq" inputmode="numeric" autocomplete="off" required placeholder="5–20 位数字"></label><label>玩家名<input id="new-player" autocomplete="off" required placeholder="支持纯数字名称"></label><button class="secondary" type="submit">绑定玩家</button></form></section>
-</main></body></html>
+    </main>
+  </div>
+  <dialog id="nav-dialog" class="nav-dialog" aria-labelledby="nav-dialog-title">
+    <div class="nav-dialog-head">
+      <h2 id="nav-dialog-title">全部页面</h2>
+      <form method="dialog"><button class="ghost" type="submit" autofocus>关闭</button></form>
+    </div>
+    <nav class="nav" aria-label="全部页面"></nav>
+  </dialog>
+</body>
+</html>

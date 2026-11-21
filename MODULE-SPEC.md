@@ -69,4 +69,4 @@ export async function handle(request, api) {
 
 ## 构建每日签到模块
 
-运行 `npm run build:checkin` 生成 `dist/daily-checkin-money-1.2.0.mcqqmodule`。它使用通用 v2 格式和完整权限声明，可从旧版 1.0.0 或 1.1.0 直接升级并保留签到记录与设置。`/qd add 玩家名` 会核对发送者登记 QQ 和 AQQBot 玩家归属，每个 QQ 每个北京时间自然日只成功领取一次。
+运行 `npm run build:checkin` 生成 `dist/daily-checkin-money-1.2.3.mcqqmodule`。它使用通用 v2 格式和完整权限声明，可从旧版 1.0.0、1.1.0、1.2.0、1.2.1 或 1.2.2 直接升级并保留签到记录与设置。`/qd add 玩家名` 会核对发送者登记 QQ 和 AQQBot 玩家归属，每个 QQ 每个北京时间自然日只成功领取一次。

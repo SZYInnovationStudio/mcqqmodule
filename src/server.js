@@ -20,6 +20,12 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.MCQQ_PORT || 2556);
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error('MCQQ_PORT 必须是 1–65535');
 const ORIGIN = `http://${HOST}:${PORT}`;
+const ALLOWED_HOSTS = new Set([`${HOST}:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
+const ALLOWED_ORIGINS = new Set([ORIGIN, `http://localhost:${PORT}`, `http://[::1]:${PORT}`]);
+const PLUGIN_BODY_LIMIT = 16 * 1024 * 1024;
+const MODULE_BODY_LIMIT = 48 * 1024 * 1024;
+const hostAllowed = value => ALLOWED_HOSTS.has(String(value ?? '').toLowerCase());
+const originAllowed = value => ALLOWED_ORIGINS.has(String(value ?? '').toLowerCase());
 const store = new Storage();
 const accounts = new AccountStore(store.dir);
 const modules = new ModuleManager(store.dir, {
@@ -47,7 +53,7 @@ const modules = new ModuleManager(store.dir, {
       return String(await rconCommand(store.config, 'help ' + command)).slice(0, 1000);
     },
     runRcon: async command => {
-      if (typeof command !== 'string' || !command.trim() || command.length > 1000 || /[\r\n\0]/.test(command)) throw new Error('RCON 命令格式无效');
+      if (typeof command !== 'string' || !command.trim() || command.length > 512 || /[\r\n\0]/.test(command)) throw new Error('RCON 命令格式无效');
       return String(await rconCommand(store.config, command.trim())).slice(0, 65536);
     },
     readConfig: () => structuredClone(store.config),
@@ -58,9 +64,9 @@ const modules = new ModuleManager(store.dir, {
       return structuredClone(next);
     },
     listRegistrations: () => store.listRegistrations(),
-    createRegistration: (openid, qq, group = '') => { store.register(openid, qq, group, 'admin-created'); return store.listRegistrations().find(item => item.openid === openid); },
-    updateRegistration: (currentOpenid, nextOpenid, qq) => { store.updateRegistration(currentOpenid, nextOpenid, qq); return store.listRegistrations().find(item => item.openid === nextOpenid); },
-    deleteRegistration: openid => { store.unregister(openid); return true; },
+    createRegistration: (openid, qq, group = '') => { store.register(openid, qq, group, 'admin-created'); bridge.forgetRealQQ(openid); return store.listRegistrations().find(item => item.openid === openid); },
+    updateRegistration: (currentOpenid, nextOpenid, qq) => { store.updateRegistration(currentOpenid, nextOpenid, qq); bridge.forgetRealQQ(currentOpenid); if (nextOpenid !== currentOpenid) bridge.forgetRealQQ(nextOpenid); return store.listRegistrations().find(item => item.openid === nextOpenid); },
+    deleteRegistration: openid => { store.unregister(openid); bridge.forgetRealQQ(openid); return true; },
     queryAqqbot: async (type, value) => queryAqqbot(store.config, rconCommand, type, value),
     bindPlayer: (qq, player) => withQqLocks([safeQq(qq)], () => bindAqqbotPlayer(store.config, rconCommand, qq, player)),
     unbindPlayer: (qq, player) => withQqLocks([safeQq(qq)], () => clearAqqbotPlayer(store.config, rconCommand, qq, player)),
@@ -90,6 +96,14 @@ const bridge = new Bridge(store, { isQqClearing: qq => clearingQq.has(qq), modul
 bridge.start();
 const sessions = new Map();
 const attempts = new Map();
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const SESSION_ABSOLUTE_MS = 24 * 60 * 60 * 1000;
+const MAX_SESSIONS = 32;
+const sessionCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions) if (session.expires < now) sessions.delete(token);
+}, 10 * 60 * 1000);
+sessionCleanup.unref?.();
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const assets = {
   '/': ['index.html', 'text/html; charset=utf-8'],
@@ -117,6 +131,7 @@ const assets = {
   '/terminal.css': ['terminal.css', 'text/css; charset=utf-8'],
   '/player-logs.css': ['player-logs.css', 'text/css; charset=utf-8'],
   '/modules.css': ['modules.css', 'text/css; charset=utf-8'],
+  '/shell.js': ['shell.js', 'text/javascript; charset=utf-8'],
   '/common.js': ['common.js', 'text/javascript; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/settings.js': ['settings.js', 'text/javascript; charset=utf-8'],
@@ -139,19 +154,30 @@ function json(res, status, value) {
 
 async function body(req, maxBytes = 64 * 1024) {
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) throw new Error('只接受 JSON');
-  let text = '';
+  const declared = Number(req.headers['content-length']);
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('请求内容过大');
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    text += chunk;
-    if (text.length > maxBytes) throw new Error('请求内容过大');
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > maxBytes) throw new Error('请求内容过大');
+    chunks.push(buffer);
   }
-  return JSON.parse(text || '{}');
+  const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('请求体必须是 JSON 对象');
+  return parsed;
 }
 
 function authorized(req) {
   const token = /(?:^|;\s*)session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie ?? '')?.[1];
-  const expires = token && sessions.get(token);
-  if (!expires || expires < Date.now()) { if (token) sessions.delete(token); return false; }
-  sessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
+  const session = token && sessions.get(token);
+  const now = Date.now();
+  if (!session || session.expires < now || now - session.created > SESSION_ABSOLUTE_MS) {
+    if (token) sessions.delete(token);
+    return false;
+  }
+  session.expires = now + SESSION_TTL_MS;
   return true;
 }
 
@@ -160,8 +186,10 @@ function pluginAuthorized(req) {
 }
 
 function loginSession(res) {
+  if (sessions.size >= MAX_SESSIONS) sessions.delete(sessions.keys().next().value);
   const token = randomBytes(32).toString('hex');
-  sessions.set(token, Date.now() + 8 * 60 * 60 * 1000);
+  const now = Date.now();
+  sessions.set(token, { created: now, expires: now + SESSION_TTL_MS });
   res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
 }
 
@@ -170,7 +198,10 @@ async function withQqLocks(qqs, run) {
   if (targets.some(qq => clearingQq.has(qq))) throw new Error('相关 QQ 的 AQQBot 管理操作正在进行，请稍后重试');
   for (const qq of targets) clearingQq.add(qq);
   try { return await run(); }
-  finally { for (const qq of targets) clearingQq.delete(qq); }
+  finally {
+    for (const qq of targets) clearingQq.delete(qq);
+    try { bridge.invalidatePlayerQQCache(); } catch {}
+  }
 }
 const withQqClearLock = (qq, run) => withQqLocks([qq], run);
 
@@ -179,13 +210,19 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   try {
-    if (req.headers.host !== `${HOST}:${PORT}`) return json(res, 400, { error: '主机名不允许' });
+    if (!hostAllowed(req.headers.host)) return json(res, 400, { error: '主机名不允许' });
     const requestUrl = new URL(req.url, ORIGIN);
     const path = requestUrl.pathname;
     if (req.method === 'GET' && assets[path]) {
       const [file, type] = assets[path];
-      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
-      res.end(await readFile(join(publicDir, file)));
+      try {
+        const data = await readFile(join(publicDir, file));
+        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+        res.end(data);
+      } catch (error) {
+        if (error.code === 'ENOENT') return json(res, 404, { error: '页面文件不存在' });
+        throw error;
+      }
       return;
     }
     if (req.method === 'GET' && path.startsWith('/modules/')) {
@@ -196,8 +233,9 @@ const server = http.createServer(async (req, res) => {
         return res.end();
       }
       try {
+        const data = await readFile(asset.path);
         res.writeHead(200, { 'Content-Type': asset.type, 'Cache-Control': 'no-store' });
-        return res.end(await readFile(asset.path));
+        return res.end(data);
       } catch (error) {
         if (error.code === 'ENOENT') return json(res, 404, { error: '模块文件不存在' });
         throw error;
@@ -206,9 +244,15 @@ const server = http.createServer(async (req, res) => {
     if (!path.startsWith('/api/')) return json(res, 404, { error: '未找到' });
     if (path === '/api/plugin/exchange' && req.method === 'POST') {
       if (!pluginAuthorized(req)) return json(res, 401, { error: '插件 Key 无效' });
-      return json(res, 200, bridge.exchangePluginChat(await body(req, 1024 * 1024)));
+      bridge.pluginConnection.observe();
+      try {
+        return json(res, 200, bridge.exchangePluginChat(await body(req, PLUGIN_BODY_LIMIT)));
+      } catch (error) {
+        try { store.audit('plugin-exchange-error', String(error.message).slice(0, 300)); } catch {}
+        throw error;
+      }
     }
-    if (req.method !== 'GET' && req.headers.origin !== ORIGIN) return json(res, 403, { error: '请求来源不允许' });
+    if (req.method !== 'GET' && !originAllowed(req.headers.origin)) return json(res, 403, { error: '请求来源不允许' });
     if (path === '/api/auth-state' && req.method === 'GET') {
       const authenticated = accounts.configured && authorized(req);
       return json(res, 200, { setupRequired: !accounts.configured, authenticated, username: authenticated ? accounts.username : null });
@@ -224,13 +268,14 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/login' && req.method === 'POST') {
       if (!accounts.configured) return json(res, 409, { error: '请先设置管理员账户' });
       const key = req.socket.remoteAddress;
-      const recent = (attempts.get(key) ?? []).filter(t => t > Date.now() - 15 * 60 * 1000);
+      const now = Date.now();
+      for (const [ip, times] of attempts) if (!times.some(t => t > now - 15 * 60 * 1000)) attempts.delete(ip);
+      const recent = (attempts.get(key) ?? []).filter(t => t > now - 15 * 60 * 1000);
       if (recent.length >= 5) return json(res, 429, { error: '尝试过多，请 15 分钟后重试' });
+      recent.push(now);
+      attempts.set(key, recent);
       const input = await body(req);
-      if (!accounts.verify(input.username, input.password)) {
-        recent.push(Date.now()); attempts.set(key, recent);
-        return json(res, 401, { error: '用户名或密码错误' });
-      }
+      if (!accounts.verify(input.username, input.password)) return json(res, 401, { error: '用户名或密码错误' });
       attempts.delete(key);
       loginSession(res);
       return json(res, 200, { ok: true, username: accounts.username });
@@ -299,13 +344,13 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/test/plugin' && req.method === 'POST') return json(res, 200, {
       mode: '插件',
       keySet: Boolean(store.config.pluginKey),
-      connected: bridge.pluginExchange.lastSeen > Date.now() - 10000,
-      lastSeen: bridge.pluginExchange.lastSeen ? new Date(bridge.pluginExchange.lastSeen).toISOString() : null
+      connected: bridge.pluginConnection.lastSeen > Date.now() - 10000,
+      lastSeen: bridge.pluginConnection.lastSeen ? new Date(bridge.pluginConnection.lastSeen).toISOString() : null
     });
-    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword), pluginConnected: bridge.pluginExchange.lastSeen > Date.now() - 10000, pluginVersion: bridge.pluginVersion, onebot: bridge.getOneBotStatus() });
+    if (path === '/api/status' && req.method === 'GET') return json(res, 200, { bot: bridge.status, registered: Object.keys(store.state.users).length, rconConfigured: Boolean(store.config.rconHost && store.config.rconPort && store.config.rconPassword), pluginConnected: bridge.pluginConnection.lastSeen > Date.now() - 10000, pluginVersion: bridge.pluginVersion, onebot: bridge.getOneBotStatus() });
     if (path === '/api/modules' && req.method === 'GET') return json(res, 200, modules.list());
     if (path === '/api/modules/install' && req.method === 'POST') {
-      const installed = await modules.install(await body(req, 34 * 1024 * 1024), accounts.username);
+      const installed = await modules.install(await body(req, MODULE_BODY_LIMIT), accounts.username);
       return json(res, 201, { ok: true, installed });
     }
     if (path === '/api/modules/toggle' && req.method === 'POST') {
@@ -434,6 +479,7 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req);
       if (!input || typeof input !== 'object') return json(res, 400, { error: '请求格式无效' });
       store.register(input.openid, input.qq, input.group ?? '', 'admin-created');
+      bridge.forgetRealQQ(input.openid);
       bridge.pending.delete(input.openid);
       store.audit('registration-create', '管理员新建 QQ ' + input.qq + ' 与 OpenID ' + input.openid + ' 的登记');
       return json(res, 200, store.listRegistrations());
@@ -441,6 +487,8 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/registrations/update' && req.method === 'POST') {
       const input = await body(req);
       store.updateRegistration(input.currentOpenid, input.openid, input.qq);
+      bridge.forgetRealQQ(input.currentOpenid);
+      if (input.openid !== input.currentOpenid) bridge.forgetRealQQ(input.openid);
       bridge.pending.delete(input.currentOpenid);
       bridge.pending.delete(input.openid);
       store.audit('registration-edit', '管理员修改了 QQ 登记：OpenID ' + input.currentOpenid + ' → ' + input.openid);
@@ -472,6 +520,7 @@ const server = http.createServer(async (req, res) => {
         store.unregister(input.openid);
       }
       bridge.pending.delete(input.openid);
+      bridge.forgetRealQQ(input.openid);
       store.audit('registration-delete', '管理员删除 QQ ' + qq + ' 的登记：OpenID ' + input.openid + (linked ? '；同时确认解绑 AQQBot 玩家 ' + removed.length + ' 个' : '；未联动解绑 AQQBot'));
       return json(res, 200, store.listRegistrations());
     }
@@ -515,7 +564,7 @@ server.listen(PORT, HOST, () => console.log(`管理后台：http://${HOST}:${POR
 /* ---------------- OneBot 反向 WebSocket 入口 ---------------- */
 // 外挂框架（NapCat / Lagrange / LLOneBot 等）把上报地址指向 ws://127.0.0.1:2556/api/onebot/ws
 // 这个连接只用来「收」事件，平台不会通过它发送群消息。
-const onebotWss = new WebSocketServer({ noServer: true });
+const onebotWss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 * 1024 });
 
 server.on('upgrade', (req, socket, head) => {
   let requestUrl;
@@ -523,8 +572,8 @@ server.on('upgrade', (req, socket, head) => {
   catch { socket.destroy(); return; }
 
   if (requestUrl.pathname !== '/api/onebot/ws') { socket.destroy(); return; }
-  if (req.headers.host !== `${HOST}:${PORT}`) { socket.destroy(); return; }
-  if (store.config.onebotEnabled !== true) { socket.destroy(); return; }
+  if (!hostAllowed(req.headers.host)) { socket.destroy(); return; }
+  if (store.config.onebotEnabled !== true || !store.config.onebotToken) { socket.destroy(); return; }
 
   const token = requestUrl.searchParams.get('access_token')
     ?? requestUrl.searchParams.get('token')

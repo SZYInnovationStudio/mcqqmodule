@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { commandAliases } from './commands.js';
 
 const FORMAT = 'bridge-module-v2';
 const LEGACY_FORMAT = 'szydmc-module-v1';
@@ -66,12 +67,17 @@ function validateManifest(value, format = FORMAT) {
 }
 
 function higherVersion(next, current) {
-  const a = next.split(/[.-]/).slice(0, 3).map(Number);
-  const b = current.split(/[.-]/).slice(0, 3).map(Number);
+  const [nextCore, nextPre = ''] = next.split('-', 2);
+  const [currentCore, currentPre = ''] = current.split('-', 2);
+  const a = nextCore.split('.').slice(0, 3).map(Number);
+  const b = currentCore.split('.').slice(0, 3).map(Number);
   for (let i = 0; i < 3; i++) {
     if (a[i] !== b[i]) return a[i] > b[i];
   }
-  return false;
+  if (nextPre === currentPre) return false;
+  if (!nextPre) return true;
+  if (!currentPre) return false;
+  return nextPre.localeCompare(currentPre, 'en', { numeric: true }) > 0;
 }
 
 export function validateModuleBundle(bundle) {
@@ -157,6 +163,7 @@ export class ModuleManager {
     const target = join(this.root, id);
     const previous = this.modules.get(id);
     if (this.installing.has(id)) throw new Error('模块正在安装或升级');
+    if (this.installing.size) throw new Error('另一个模块正在安装或升级，请稍后重试');
     if ((this.inFlight.get(id) ?? 0) > 0) throw new Error('模块正在处理请求，请稍后升级');
     if (existsSync(target) && !previous) throw new Error('模块目录已存在但无法加载，请先检查目录');
     if (previous && !higherVersion(parsed.manifest.version, previous.version)) throw new Error('模块升级版本必须高于已安装版本');
@@ -171,7 +178,7 @@ export class ModuleManager {
         await writeFile(destination, file.data, { flag: 'wx', mode: 0o600 });
       }
       const installedAt = new Date().toISOString();
-      const reserved = new Set(['qqbind', 'qqunbind', 'mcbind', 'mcunbind', 'mcunallbind', 'mymc', 'motd', 'list', 'tps', 'status', '登记', '解除登记', '绑定', '解绑', '全部解绑', '我的mc', '状态', '在线', '性能', '桥接状态']);
+      const reserved = new Set(['qqbind', 'qqunbind', 'mcbind', 'mcunbind', 'mcunallbind', 'mymc', 'motd', 'list', 'tps', 'status', ...commandAliases.keys()]);
       for (const command of parsed.manifest.commands) {
         if (reserved.has(command.toLowerCase()) || [...this.modules.values()].some(item => item.id !== id && item.commands.includes(command))) throw new Error('模块命令已被占用');
       }
@@ -181,7 +188,8 @@ export class ModuleManager {
       try {
         await rename(staging, target);
         const record = await this.loadOne(id);
-        this.audit(previous ? 'module-upgrade' : 'module-install', `管理员 ${username} ${previous ? '升级' : '安装'}模块 ${id}@${record.version}`);
+        try { this.audit(previous ? 'module-upgrade' : 'module-install', `管理员 ${username} ${previous ? '升级' : '安装'}模块 ${id}@${record.version}`); }
+        catch (auditError) { this.errors.push({ id, error: `审计写入失败：${auditError.message}` }); }
         return this.list().modules.find(item => item.id === id);
       } catch (error) {
         await rm(target, { recursive: true, force: true });
@@ -209,7 +217,8 @@ export class ModuleManager {
     await writeFile(temp, JSON.stringify({ ...saved, enabled }), { mode: 0o600 });
     await rename(temp, path);
     module.enabled = enabled;
-    this.audit('module-toggle', `管理员 ${username} ${enabled ? '启用' : '关闭'}模块 ${id}`);
+    try { this.audit('module-toggle', `管理员 ${username} ${enabled ? '启用' : '关闭'}模块 ${id}`); }
+    catch {}
     return this.list().modules.find(item => item.id === id);
   }
 

@@ -1,13 +1,33 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101a2c">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#e8ede7">
+  <script src="/shell.js"></script>
   <title>AQQBot 查询 · MC × QQ</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/pages.css"><link rel="stylesheet" href="/users.css"><script type="module" src="/users.js"></script>
 </head>
-<body><main class="shell">
-  <header class="topbar"><div class="brand"><span class="brand-mark">M<span>×</span>Q</span><div><strong>MC × QQ</strong><small>服务器桥接管理</small></div></div><nav class="nav" aria-label="主导航"><a href="/">总览</a><a href="/settings">修改信息</a><a href="/templates">消息模板</a><a href="/terminal">RCON 终端</a><a href="/player-logs">玩家日志</a><a href="/server-logs">服务器日志</a><a class="active" aria-current="page" href="/users">AQQBot 查询</a><a href="/binding-admin">绑定管理</a><a href="/aqqbot-database">AQQBot 整库</a><a href="/registrations">QQ 登记</a><a href="/modules">增量模块</a><a href="/guide">使用教程</a></nav><div class="top-actions"><span id="current-user" class="local-tag"></span><button id="logout" class="ghost">退出</button></div></header>
-  <div class="page-intro"><div><div class="eyebrow">实时查询</div><h1>AQQBot 绑定查询</h1><p>输入 QQ 号或 Minecraft 玩家名，直接读取服务器 AQQBot 的当前结果。管理操作请到独立的“绑定管理”页面。</p></div></div>
+<body class="bridge-ui">
+  <a class="skip-link" href="#workspace">跳到主要内容</a>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="MC × QQ 总览">
+        <span class="brand-mark" aria-hidden="true">M<span>×</span>Q</span>
+        <span><strong>MC × QQ</strong><small>桥接管理后台</small></span>
+      </a>
+      <nav id="main-nav" class="nav" aria-label="主导航"></nav>
+      <div class="top-actions">
+        <button class="secondary theme-toggle" data-theme-toggle type="button" aria-label="切换深浅色">
+          <span class="theme-mark" aria-hidden="true"></span><span data-theme-label>深色</span>
+        </button>
+        <div class="account-actions">
+          <span id="current-user" class="local-tag"></span>
+          <button id="logout" class="ghost" type="button">退出</button>
+        </div>
+      </div>
+    </header>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="移动导航"></nav>
+    <main id="workspace" class="workspace" tabindex="-1">
+  <div class="page-intro"><div><h1>AQQBot 绑定查询</h1><p>输入 QQ 号或 Minecraft 玩家名，直接读取服务器 AQQBot 的当前结果。管理操作请到独立的“绑定管理”页面。</p></div></div>
   <section class="panel">
     <form id="query-form" class="query-form">
       <label for="query-type">查询方式</label>
@@ -24,4 +44,14 @@
     </div>
     <p class="query-note">本页只查询，不修改 AQQBot 绑定。</p>
   </section>
-</main></body></html>
+    </main>
+  </div>
+  <dialog id="nav-dialog" class="nav-dialog" aria-labelledby="nav-dialog-title">
+    <div class="nav-dialog-head">
+      <h2 id="nav-dialog-title">全部页面</h2>
+      <form method="dialog"><button class="ghost" type="submit" autofocus>关闭</button></form>
+    </div>
+    <nav class="nav" aria-label="全部页面"></nav>
+  </dialog>
+</body>
+</html>

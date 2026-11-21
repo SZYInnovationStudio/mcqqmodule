@@ -12,7 +12,7 @@ function packet(id, type, body) {
 
 export function rconCommand({ rconHost, rconPort, rconPassword }, command, timeoutMs = 5000) {
   if (!rconHost || !rconPort || !rconPassword) return Promise.reject(new Error('RCON 配置不完整'));
-  if (!/^[a-zA-Z0-9_.-]+$/.test(rconHost)) return Promise.reject(new Error('RCON 主机名格式无效'));
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(rconHost)) return Promise.reject(new Error('RCON 主机名格式无效'));
   if (!command || command.length > 512 || /[\r\n\0]/.test(command)) return Promise.reject(new Error('命令格式无效'));
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: rconHost, port: Number(rconPort) });
@@ -22,6 +22,7 @@ export function rconCommand({ rconHost, rconPort, rconPassword }, command, timeo
     let idle;
     const timer = setTimeout(() => end(new Error('RCON 响应超时')), timeoutMs);
     const chunks = [];
+    let receivedBytes = 0;
     const end = (error, value) => {
       if (finished) return;
       finished = true;
@@ -49,9 +50,12 @@ export function rconCommand({ rconHost, rconPort, rconPassword }, command, timeo
           authenticated = true;
           socket.write(packet(102, 2, command.replace(/^\//, '')));
         } else if (authenticated && id === 102) {
-          chunks.push(frame.subarray(12, frame.length - 2).toString('utf8'));
+          const payload = frame.subarray(12, frame.length - 2);
+          receivedBytes += payload.length;
+          if (receivedBytes > 4 * 1024 * 1024) return end(new Error('RCON 响应过大'));
+          chunks.push(payload);
           clearTimeout(idle);
-          idle = setTimeout(() => end(null, chunks.join('').trim()), 200);
+          idle = setTimeout(() => end(null, Buffer.concat(chunks).toString('utf8').trim()), 200);
         }
       }
     });

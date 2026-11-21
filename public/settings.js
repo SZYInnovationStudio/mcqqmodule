@@ -91,5 +91,10 @@ api('auth-state').then(async state => {
   if (!state.authenticated) { location.replace('/'); return; }
   $('current-user').textContent = state.username;
   $('account-username').value = state.username;
+  const reverse = $('onebot-reverse-url');
+  if (reverse) {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    reverse.textContent = `${protocol}//${location.host}/api/onebot/ws`;
+  }
   await loadConfig();
 }).catch(() => { location.replace('/'); });

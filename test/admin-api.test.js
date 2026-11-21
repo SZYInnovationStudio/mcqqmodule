@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -78,13 +79,13 @@ test('8.7.1 后台管理、插件版本、模板、服务器日志、RCON 终端
       child.once('error', fail);
       child.once('exit', code => fail(new Error('后台提前退出：' + code)));
     });
-    const call = async (path, method = 'GET', payload, cookie) => {
+    const call = async (path, method = 'GET', payload, cookie, requestOrigin = origin) => {
       const response = await fetch(origin + '/api/' + path, {
         method,
         headers: {
           ...(payload ? { 'Content-Type': 'application/json' } : {}),
           ...(cookie ? { Cookie: cookie } : {}),
-          ...(method !== 'GET' ? { Origin: origin } : {})
+          ...(method !== 'GET' ? { Origin: requestOrigin } : {})
         },
         ...(payload ? { body: JSON.stringify(payload) } : {})
       });
@@ -98,6 +99,17 @@ test('8.7.1 后台管理、插件版本、模板、服务器日志、RCON 终端
       body: JSON.stringify({ username: 'admin123', password: 'pass1234' })
     });
     const cookie = login.headers.get('set-cookie').split(';')[0];
+    const requestStatus = (path, host) => new Promise((resolve, reject) => {
+      const request = http.request({ hostname: '127.0.0.1', port, path, headers: { Host: host } }, response => {
+        response.resume();
+        response.on('end', () => resolve(response.statusCode));
+      });
+      request.on('error', reject);
+      request.end();
+    });
+    assert.equal(await requestStatus('/api/auth-state', `localhost:${port}`), 200);
+    assert.equal(await requestStatus('/api/auth-state', 'evil.example'), 400);
+    assert.equal((await call('login', 'POST', { username: 'admin123', password: 'wrong' }, undefined, `http://localhost:${port}`)).status, 401);
     assert.equal((await fetch(origin + '/modules')).status, 200);
     assert.equal((await call('modules')).status, 401);
     const modulePage = Buffer.from('<!doctype html><title>增量测试</title><h1>只新增</h1>');
@@ -137,6 +149,22 @@ test('8.7.1 后台管理、插件版本、模板、服务器日志、RCON 终端
     assert.equal(database.data.available, true);
     assert.equal(database.data.rows[0].openid, 'USER_OPENID_123');
     assert.deepEqual(database.data.rows[0].players, ['011', 'Steve']);
+    const largeRows = Array.from({ length: 3000 }, (_, index) => ({
+      qq: String(10000000000 + index),
+      players: Array.from({ length: 40 }, (_, player) => `P${index}_${player}`)
+    }));
+    const largeExchange = await fetch(origin + '/api/plugin/exchange', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + storage.config.pluginKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ack: 0,
+        sent: [],
+        aqqbotSnapshot: { available: true, capturedAt: Date.now(), rows: largeRows }
+      })
+    });
+    assert.equal(largeExchange.status, 200);
+    const largeDatabase = await call('aqqbot/database', 'GET', undefined, cookie);
+    assert.equal(largeDatabase.data.rows.length, 3000);
     const status = await call('status', 'GET', undefined, cookie);
     assert.equal(status.data.pluginVersion, '1.1.3');
     assert.equal((await fetch(origin + '/templates')).status, 200);
@@ -195,6 +223,8 @@ test('8.7.1 后台管理、插件版本、模板、服务器日志、RCON 终端
     assert.equal(owners.has('Steve'), false);
     assert.equal(owners.get('other'), '36000001');
     assert.equal(new Storage(join(dir, 'data')).state.users.USER_OPENID_123, undefined);
+    assert.equal((await fetch(origin + '/missing-page.css')).status, 404);
+    assert.equal((await fetch(origin + '/api/auth-state')).status, 200);
     const all = await call('aqqbot/clear-all', 'POST', { qq: '36000001', confirmQq: '36000001' }, cookie);
     assert.equal(all.status, 200);
     assert.deepEqual(all.data.removed, ['other']);

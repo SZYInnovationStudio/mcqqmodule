@@ -2,6 +2,12 @@ import { randomInt } from 'node:crypto';
 
 const defaults = { min: 1000, max: 10000, commandTemplate: 'money give ${player} ${amount}' };
 const locks = new Set();
+let stateQueue = Promise.resolve();
+const serialized = run => {
+  const next = stateQueue.then(run, run);
+  stateQueue = next.catch(() => {});
+  return next;
+};
 const dayKey = now => new Date(now + 8 * 3600000).toISOString().slice(0, 10);
 const tomorrow = now => new Date((Math.floor((now + 8 * 3600000) / 86400000) + 1) * 86400000 - 8 * 3600000).toISOString();
 const validPlayer = value => typeof value === 'string' && /^[\p{L}\p{N}_.!<>\-（）]{1,32}$/u.test(value);
@@ -27,8 +33,16 @@ async function command(request, api) {
     const day = dayKey(now);
     const state = await api.readState();
     state.claims ??= {};
+    const cutoffDay = dayKey(now - 2 * 86400000);
+    for (const key of Object.keys(state.claims)) {
+      if (!state.claims[key]?.day || state.claims[key].day < cutoffDay) delete state.claims[key];
+    }
     const prior = state.claims[qq];
-    if (prior?.day === day) return { reply: `今天已签到：${prior.player} 获得 ${prior.amount} 游戏币。下次可领取：${tomorrow(now)}（UTC+8 为次日 00:00）。` };
+    if (prior?.day === day) {
+      await api.writeState(state);
+      if (prior.status === 'pending') return { reply: '今天的签到奖励结果尚未确认，为避免重复发放，暂不能再次领取。请联系管理员核对。' };
+      return { reply: `今天已签到：${prior.player} 获得 ${prior.amount} 游戏币。下次可领取：${tomorrow(now)}（UTC+8 为次日 00:00）。` };
+    }
     const settings = settingsOf(state);
     const choice = match[1];
     let player;
@@ -46,15 +60,24 @@ async function command(request, api) {
     }
     if (api.getRegistration(openid) !== qq || (await api.playerOwner(player)) !== qq || !api.enabled()) return { reply: 'QQ 登记、玩家归属或模块状态已变化，未发放奖励。' };
     const amount = randomInt(settings.min, settings.max + 1);
+    state.claims[qq] = { day, player, amount, at: new Date().toISOString(), status: 'pending' };
+    await api.writeState(state);
+    if (api.getRegistration(openid) !== qq || (await api.playerOwner(player)) !== qq || !api.enabled()) {
+      delete state.claims[qq];
+      await api.writeState(state);
+      return { reply: 'QQ 登记、玩家归属或模块状态已变化，未发放奖励。' };
+    }
     let output;
     try { output = await api.reward(player, amount, settings.commandTemplate); }
     catch (error) {
-      state.records = [{ at: new Date().toISOString(), qq, openid, player, amount, status: '失败', detail: String(error.message).slice(0, 120) }, ...(state.records ?? [])].slice(0, 100);
+      const ambiguous = /(超时|timeout|连接已关闭|响应为空|无效数据|ECONNRESET|EOF)/i.test(String(error.message));
+      if (!ambiguous) delete state.claims[qq];
+      state.records = [{ at: new Date().toISOString(), qq, openid, player, amount, status: ambiguous ? '待核对' : '失败', detail: String(error.message).slice(0, 120) }, ...(state.records ?? [])].slice(0, 100);
       await api.writeState(state);
-      api.audit(`QQ ${qq} 向 ${player} 签到发放失败`);
+      api.audit(`QQ ${qq} 向 ${player} 签到发放${ambiguous ? '结果待核对' : '失败'}`);
       throw error;
     }
-    state.claims[qq] = { day, player, amount, at: new Date().toISOString() };
+    state.claims[qq] = { day, player, amount, at: new Date().toISOString(), status: 'claimed' };
     state.records = [{ at: state.claims[qq].at, qq, openid, player, amount, status: '成功', detail: String(output).slice(0, 120) }, ...(state.records ?? [])].slice(0, 100);
     await api.writeState(state);
     api.audit(`QQ ${qq} 签到成功，玩家 ${player}，奖励 ${amount}`);
@@ -63,7 +86,7 @@ async function command(request, api) {
 }
 
 export async function handle(request, api) {
-  if (request.method === 'COMMAND') return command(request, api);
+  if (request.method === 'COMMAND') return serialized(() => command(request, api));
   if (request.method === 'GET' && request.path === 'settings') {
     const state = await api.readState();
     const today = dayKey(Date.now());
@@ -72,12 +95,14 @@ export async function handle(request, api) {
     return { body: { id: 'daily-checkin-money', version: api.moduleVersion, enabled: api.enabled(), settings: settingsOf(state), todayCount: claims.length, todayAmount: claims.reduce((sum, item) => sum + item.amount, 0), records } };
   }
   if (request.method === 'POST' && request.path === 'settings') {
-    const settings = validateSettings(request.input);
-    const state = await api.readState();
-    state.settings = settings;
-    await api.writeState(state);
-    api.audit(`管理员 ${request.username} 修改签到设置`);
-    return { body: { ok: true, settings } };
+    return serialized(async () => {
+      const settings = validateSettings(request.input);
+      const state = await api.readState();
+      state.settings = settings;
+      await api.writeState(state);
+      api.audit(`管理员 ${request.username} 修改签到设置`);
+      return { body: { ok: true, settings } };
+    });
   }
   if (request.method === 'POST' && request.path === 'test') {
     const settings = validateSettings(request.input);

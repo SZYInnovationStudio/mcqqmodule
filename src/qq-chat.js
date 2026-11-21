@@ -7,10 +7,11 @@ const COLORS = {
 const FORMATS = { k: 'obfuscated', l: 'bold', m: 'strikethrough', n: 'underlined', o: 'italic' };
 
 function clean(value, max) {
-  return String(value ?? '')
+  const text = String(value ?? '')
     .replace(/[\u061C\u200B\u200C\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g, '')
     .replace(/[\x00-\x1f\x7f]/g, ' ')
-    .replace(/\s+/g, ' ').trim().slice(0, max);
+    .replace(/\s+/g, ' ').trim();
+  return Array.from(text).slice(0, max).join('');
 }
 
 export function parseNameMap(value, label = '名称映射') {

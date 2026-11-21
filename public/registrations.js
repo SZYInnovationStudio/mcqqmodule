@@ -7,8 +7,9 @@ let revision = 0;
 let refreshId = 0;
 const unlinkSwitch = $('unlink-on-delete');
 
-function cell(row, value) {
+function cell(row, label, value) {
   const td = document.createElement('td');
+  td.dataset.label = label;
   td.textContent = value;
   row.append(td);
   return td;
@@ -98,7 +99,10 @@ function render() {
   for (const item of shown) {
     const tr = document.createElement('tr');
     const date = item.registeredAt ? new Date(item.registeredAt) : null;
-    for (const value of [item.qq, item.openid, item.group || '—', date && !Number.isNaN(date.getTime()) ? date.toLocaleString('zh-CN') : '—']) cell(tr, value);
+    cell(tr, 'QQ 号', item.qq);
+    cell(tr, 'OpenID', item.openid);
+    cell(tr, '登记群 OpenID', item.group || '—');
+    cell(tr, '登记时间', date && !Number.isNaN(date.getTime()) ? date.toLocaleString('zh-CN') : '—');
     const controls = document.createElement('td');
     const controlButtons = document.createElement('div');
     controlButtons.className = 'registration-actions';
@@ -212,4 +216,3 @@ api('auth-state').then(async state => {
     if (document.visibilityState === 'visible' && !editingOpenid) void refresh(true);
   }, 10000);
 }).catch(() => { location.replace('/'); });
-

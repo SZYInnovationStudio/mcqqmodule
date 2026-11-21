@@ -42,6 +42,14 @@ test('Release 正文由脚本完整重写，不追加自动变更说明', maybe,
   assert.match(notes, /releases\/download\//);
 });
 
+test('修订号指纹基于源码，不随构建时间戳或回写文件漂移', () => {
+  const notes = read('scripts/release-notes.mjs');
+  assert.match(notes, /collectFingerprintFiles/);
+  assert.match(notes, /FINGERPRINT_SKIP_DIRS[\s\S]*'dist'/);
+  assert.match(notes, /FINGERPRINT_SKIP_FILES[\s\S]*'REVISIONS\.md'/);
+  assert.match(notes, /FINGERPRINT_SKIP_EXTENSIONS[\s\S]*'\.jar'/);
+});
+
 test('Release 正文不改写 dist/release 之外的内容，避免被当成附件', () => {
   const notes = read('scripts/release-notes.mjs');
   // 输出必须落在 dist/ 根目录，而不是 dist/release/

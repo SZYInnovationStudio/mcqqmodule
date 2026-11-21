@@ -35,21 +35,31 @@ function validatePlainTemplate(value, label, allowed, required = []) {
 export function validateConfig(input, current = {}) {
   const next = {};
   for (const key of keys) next[key] = String(input[key] ?? current[key] ?? '').trim();
-  for (const key of secrets) if (!String(input[key] ?? '').trim()) next[key] = current[key] ?? '';
+  for (const key of secrets) {
+    const provided = input[key];
+    next[key] = provided === undefined || provided === null || !String(provided).trim()
+      ? current[key] ?? ''
+      : (key === 'rconPassword' ? String(provided) : String(provided).trim());
+  }
   if (next.qqAppId && !/^\d{5,32}$/.test(next.qqAppId)) throw new Error('QQ Bot AppID 格式不合法');
   if (input.chatTransport && input.chatTransport !== 'plugin') throw new Error('聊天只支持独立插件连接');
   if (next.pluginKey && !/^[A-Za-z0-9_-]{32,128}$/.test(next.pluginKey)) throw new Error('插件 Key 至少 32 位，仅可用字母、数字、下划线和连字符');
-  for (const field of ['rconHost', 'mcHost']) if (next[field] && !/^[a-zA-Z0-9.:-]{1,253}$/.test(next[field])) throw new Error('${field} 格式不合法');
+  for (const field of ['rconHost', 'mcHost']) if (next[field] && !/^[a-zA-Z0-9.:-]{1,253}$/.test(next[field])) throw new Error(`${field} 格式不合法`);
   for (const field of ['rconPort', 'mcPort']) {
     const port = Number(next[field]);
-    if (next[field] && (!Number.isInteger(port) || port < 1 || port > 65535)) throw new Error('${field} 必须是 1–65535');
+    if (next[field] && (!Number.isInteger(port) || port < 1 || port > 65535)) throw new Error(`${field} 必须是 1–65535`);
   }
-  next.allowedGroups = next.allowedGroups.split(/[\s,，]+/).filter(Boolean).join(',');
+  next.allowedGroups = [...new Set(next.allowedGroups.split(/[\s,，]+/).filter(Boolean))].join(',');
   if (next.allowedGroups && !/^[A-Za-z0-9_-]{5,128}(,[A-Za-z0-9_-]{5,128})*$/.test(next.allowedGroups)) throw new Error('群 OpenID 列表格式不合法');
   // OneBot 监听 Bot 的正向 WebSocket 地址，空表示等待外挂 Bot 主动连入（反向）
   if (next.onebotUrl) {
     if (next.onebotUrl.length > 500) throw new Error('OneBot 地址过长');
-    if (!/^wss?:\/\/[^\s]{1,500}$/i.test(next.onebotUrl)) throw new Error('OneBot 地址需为 ws:// 或 wss:// 开头');
+    let parsed;
+    try { parsed = new URL(next.onebotUrl); } catch { throw new Error('OneBot 地址格式无效'); }
+    if (!['ws:', 'wss:'].includes(parsed.protocol) || !parsed.hostname) throw new Error('OneBot 地址需为 ws:// 或 wss:// 开头');
+    if (parsed.username || parsed.password) throw new Error('OneBot 地址不能内嵌用户名或密码');
+    const loopback = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(parsed.hostname);
+    if (parsed.protocol === 'ws:' && !loopback) throw new Error('远程 OneBot 必须使用 wss://，或通过本机安全隧道连接');
   }
   if (next.onebotToken && !/^[A-Za-z0-9_-]{8,200}$/.test(next.onebotToken)) throw new Error('OneBot Token 至少 8 位，仅可用字母、数字、下划线和连字符');
   next.qqToMcTemplate = resolveQqToMcTemplate(next.qqToMcTemplate);
@@ -71,7 +81,7 @@ export function validateConfig(input, current = {}) {
   for (const flag of booleanFlags) {
     const migratedDefault = (flag === 'presenceNotifyEnabled' || flag === 'serverStatusNotifyEnabled') ? current.mcToQqEnabled === true : false;
     const value = input[flag] ?? current[flag] ?? migratedDefault;
-    if (value !== true && value !== false) throw new Error('${flag} 开关格式无效');
+    if (value !== true && value !== false) throw new Error(`${flag} 开关格式无效`);
     next[flag] = value;
   }
   // 布尔标志归一化之后才判断，此时 next.onebotEnabled 一定是真正的布尔值

@@ -168,6 +168,20 @@ test('插件模式 QQ → MC 排队给插件，不调用 RCON', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('配置重启保留待下发的插件消息和确认状态', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
+  try {
+    const store = new Storage(dir);
+    const bridge = new Bridge(store);
+    bridge.pluginExchange.enqueue([{ text: '待下发' }]);
+    const epoch = bridge.pluginExchange.epoch;
+    bridge.restart();
+    assert.equal(bridge.pluginExchange.epoch, epoch);
+    assert.equal(bridge.exchangePluginChat({ ack: 0, sent: [] }).receive.length, 1);
+    bridge.stop();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('插件玩家进出服只播报玩家动作，重复事件不重发', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mcqq-'));
   try {
@@ -195,7 +209,9 @@ test('插件玩家进出服只播报玩家动作，重复事件不重发', async
     bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-next', kind: 'join', player: 'Bob', players: ['Bob'] }] });
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 2);
+    const lastSeen = bridge.pluginConnection.lastSeen;
     assert.throws(() => bridge.exchangePluginChat({ ack: 0, sent: [{ id: 'run12345-bad', kind: 'join', player: 'Bob', players: 'Bob' }] }), /格式/);
+    assert.ok(bridge.pluginConnection.lastSeen >= lastSeen, '无效事件也不能阻断心跳');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -381,6 +397,43 @@ test('除 /qqbind 和绑定码外，所有业务命令都要求先登记', async
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('配置校验错误信息包含具体字段名', () => {
+  assert.throws(() => validateConfig({ rconHost: 'bad host' }), /rconHost 格式不合法/);
+  assert.throws(() => validateConfig({ onebotEnabled: 'yes' }), /onebotEnabled 开关格式无效/);
+});
+
+test('远程 OneBot 必须使用 wss，环回地址允许 ws', () => {
+  assert.throws(() => validateConfig({ onebotUrl: 'ws://example.com/ws' }), /wss/);
+  assert.doesNotThrow(() => validateConfig({ onebotUrl: 'wss://example.com/ws' }));
+  assert.doesNotThrow(() => validateConfig({ onebotUrl: 'ws://127.0.0.1:3001' }));
+});
+
+test('密码类配置保留首尾空格，空白输入继续沿用旧值', () => {
+  const config = validateConfig({ rconPassword: ' secret ' }, {});
+  assert.equal(config.rconPassword, ' secret ');
+  const kept = validateConfig({ rconPassword: '   ' }, { rconPassword: 'old', pluginKey: 'a'.repeat(32) });
+  assert.equal(kept.rconPassword, 'old');
+});
+
+test('AQQBot 快照建立玩家 QQ 索引', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mcqq-index-'));
+  try {
+    const store = new Storage(dir);
+    const bridge = new Bridge(store);
+    bridge.observeAqqbotSnapshot({
+      available: true,
+      capturedAt: Date.now(),
+      rows: [
+        { qq: '10000001', players: ['Alice'] },
+        { qq: '10000002', players: ['Alice', 'Bob'] }
+      ]
+    });
+    assert.equal(bridge.qqForPlayer('Alice'), '10000001');
+    assert.equal(bridge.qqForPlayer('Bob'), '10000002');
+    assert.equal(bridge.qqForPlayer('Nobody'), '');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 function rconPacket(id, type, value) {
   const text = Buffer.from(value);
   const data = Buffer.alloc(text.length + 14);
@@ -469,6 +522,8 @@ test('8.7.0 服务器日志批次受开关、大小限制和批次去重保护�
     assert.equal(bridge.getServerLogs().lines.length, 2);
     store.config.serverLogEnabled = false;
     assert.equal(bridge.exchangePluginChat({ ack: 0, sent: [] }).logEnabled, false);
-    assert.throws(() => bridge.exchangePluginChat({ ack: 0, sent: [], pluginVersion: 'bad version' }), /插件版本格式无效/);
+    bridge.exchangePluginChat({ ack: 0, sent: [], pluginVersion: 'bad version' });
+    assert.equal(bridge.pluginVersion, '1.1.3');
+    assert.ok(store.state.audit.some(item => item.kind === 'plugin-version-invalid'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

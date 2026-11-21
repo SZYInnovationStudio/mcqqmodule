@@ -93,7 +93,7 @@ test('插件重启在离线确认期内恢复时不误报，持续停止才播�
   try {
     const store = new Storage(dir);
     store.config = { allowedGroups: 'GROUP_OPENID_123', chatTransport: 'plugin', serverStatusNotifyEnabled: true };
-    const bridge = new Bridge(store, { pluginOfflineConfirmMs: 60 });
+    const bridge = new Bridge(store, { pluginOfflineConfirmMs: 60, pluginHeartbeatOfflineConfirmMs: 60 });
     const sent = [];
     bridge.bot = { sendText: async (_target, content) => sent.push(content) };
     bridge.status = '已连接';

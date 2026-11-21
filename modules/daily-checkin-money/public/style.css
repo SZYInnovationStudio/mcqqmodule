@@ -1,2 +1,14 @@
-.checkin-layout{display:grid;grid-template-columns:minmax(340px,1fr) minmax(420px,1.2fr);gap:20px}.checkin-form{display:grid;gap:13px;margin-top:18px}.checkin-form label{display:grid;gap:6px;color:#d7e2ee;font-size:14px;font-weight:700}.checkin-form input{padding:11px 13px;border:1px solid #34506b;border-radius:9px;background:#0d192a;color:#fff}.checkin-toggle{display:flex;align-items:center;gap:14px;padding:13px;background:#102d30;border-radius:9px}.checkin-toggle input{width:20px;height:20px;accent-color:#69dfbc}.checkin-preview{padding:12px;background:#08111e;border:1px solid #294058;border-radius:9px;white-space:pre-wrap;overflow-wrap:anywhere}.checkin-stats{display:flex;gap:30px;margin:20px 0}.checkin-stats div{display:grid;gap:5px}.checkin-stats small{color:#9db0c6}.checkin-stats strong{font-size:25px}.checkin-table-wrap{overflow:auto;max-height:520px;margin-top:14px}table{width:100%;border-collapse:collapse;text-align:left;font-size:13px}th,td{padding:10px 8px;border-bottom:1px solid #294058;white-space:nowrap}td{color:#c5d4e2}@media(max-width:950px){.checkin-layout{grid-template-columns:1fr}}
-.checkin-actions{display:flex;gap:10px;flex-wrap:wrap}
+.checkin-layout { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
+.checkin-toggle { margin-top: 10px; }
+.checkin-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.checkin-form > :nth-child(n + 3) { grid-column: 1 / -1; }
+.checkin-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.checkin-preview { min-height: 45px; }
+.checkin-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.checkin-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 10px 0; }
+.checkin-stats div { display: grid; gap: 2px; padding: 8px; border: 1px solid var(--border); border-radius: var(--control-radius); background: var(--inset); }
+.checkin-stats small { color: var(--muted); }
+.checkin-stats strong { font-size: 21px; overflow-wrap: anywhere; }
+.checkin-table-wrap { margin-top: 7px; }
+@media (max-width: 1140px) { .checkin-layout { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 620px) { .checkin-table-wrap td:nth-child(2) { grid-column: 1 / -1; } }

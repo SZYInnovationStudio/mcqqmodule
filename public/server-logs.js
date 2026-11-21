@@ -21,15 +21,16 @@ async function refresh(silent = false) {
   } catch (error) { message('server-log-message', error.message, true); }
 }
 $('server-log-enabled').addEventListener('change', async event => {
-  const enabled = event.currentTarget.checked;
-  event.currentTarget.disabled = true;
+  const control = event.currentTarget;
+  const enabled = control.checked;
+  control.disabled = true;
   try {
     await api('server-logs/setting', { method: 'POST', body: JSON.stringify({ enabled }) });
     await refresh();
   } catch (error) {
-    event.currentTarget.checked = !enabled;
+    control.checked = !enabled;
     message('server-log-message', error.message, true);
-  } finally { event.currentTarget.disabled = false; }
+  } finally { control.disabled = false; }
 });
 $('server-log-search').addEventListener('input', render);
 $('refresh-server-logs').addEventListener('click', () => { void refresh(); });

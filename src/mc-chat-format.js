@@ -6,14 +6,14 @@
  * 显示出来才方便群友对上号。
  */
 export function formatMcToQq(template, { player, content, qq = '' }) {
-  const cleanPlayer = String(player ?? '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 32);
-  const cleanContent = String(content ?? '').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 350);
+  const cleanPlayer = Array.from(String(player ?? '').replace(/[\x00-\x1f\x7f]/g, '')).slice(0, 32).join('');
+  const cleanContent = Array.from(String(content ?? '').replace(/[\x00-\x1f\x7f]/g, ' ')).slice(0, 350).join('');
   // QQ 号只允许数字，其他一律当空；避免脏数据串进消息
   const cleanQq = /^\d{5,20}$/.test(String(qq ?? '')) ? String(qq) : '';
   // 没绑定时用占位符，避免出现「（）」这种空括号
   const displayQq = cleanQq || '未绑定';
 
-  return String(template)
+  const result = String(template)
     .replace(/\$\{(player|message|qq|qqOrEmpty)\}/g, (_whole, name) => {
       if (name === 'player') return cleanPlayer;
       if (name === 'message') return cleanContent;
@@ -23,8 +23,8 @@ export function formatMcToQq(template, { player, content, qq = '' }) {
     // 清理由于变量为空造成的空括号与多余空格
     .replace(/[（(]\s*[）)]/g, '')
     .replace(/\s{2,}/g, ' ')
-    .trim()
-    .slice(0, 600);
+    .trim();
+  return Array.from(result).slice(0, 600).join('');
 }
 
 /**

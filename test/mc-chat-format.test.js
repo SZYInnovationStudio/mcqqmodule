@@ -234,3 +234,47 @@ test('【队列】ack 确认后正确清理已下发消息', async () => {
   assert.equal(exchange.outgoing.length, 10, '已确认的应被清理');
   assert.equal(result.receive[0].id, 21, '剩余从第 21 条继续');
 });
+
+test('【队列】高峰后旧事件仍能按 ID 去重', async () => {
+  const { PluginChatExchange } = await import('../src/plugin-chat.js');
+  const received = [];
+  const exchange = new PluginChatExchange(chat => received.push(chat));
+  const first = { id: 'run12345-1', kind: 'chat', player: 'Steve', message: 'hello' };
+  exchange.exchange({ ack: 0, sent: [first] });
+  for (let i = 0; i < 3000; i += 1) {
+    exchange.exchange({ ack: 0, sent: [{ id: `run12345-${i + 2}`, kind: 'chat', player: 'Steve', message: `m${i}` }] });
+  }
+  exchange.exchange({ ack: 0, sent: [first] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(received.length, 3001, '旧事件不应在高峰后被重复处理');
+});
+
+test('【队列】整批校验失败时不能先应用 ACK 或派发前面的合法事件', async () => {
+  const { PluginChatExchange } = await import('../src/plugin-chat.js');
+  const received = [];
+  const exchange = new PluginChatExchange(chat => received.push(chat));
+  exchange.enqueue([{ text: '待下发' }]);
+  assert.throws(() => exchange.exchange({
+    ack: 1,
+    sent: [
+      { id: 'run12345-ok', kind: 'chat', player: 'Steve', message: 'hi' },
+      { id: 'run12345-bad', kind: 'chat', player: 'Steve', message: '' }
+    ]
+  }), /消息格式无效/);
+  assert.equal(exchange.outgoing.length, 1, '无效批次不能清空下发队列');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(received.length, 0, '无效批次不能派发前面的合法事件');
+});
+
+test('【队列】在线名单超过 200 人不会使整次插件交换失败', async () => {
+  const { PluginChatExchange } = await import('../src/plugin-chat.js');
+  const received = [];
+  const exchange = new PluginChatExchange(() => {}, event => received.push(event));
+  const players = Array.from({ length: 201 }, (_, index) => `P${String(index).padStart(4, '0')}`);
+  assert.doesNotThrow(() => exchange.exchange({
+    ack: 0,
+    sent: [{ id: 'run12345-join', kind: 'join', player: 'Alice', players }]
+  }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(received[0].players.length, 201);
+});

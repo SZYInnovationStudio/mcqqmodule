@@ -1,4 +1,4 @@
-# SZYDMCChatBridge 1.1.4
+# SZYDMCChatBridge 1.1.6
 
 当前源码仅使用 Bukkit 公共 API，以 Spigot 1.13.2 API 和 Java 8 字节码目标编译。通用包可安装在 Minecraft 1.13 至 1.21.11 的 CraftBukkit、Spigot、Paper、Purpur、Leaves，以及其他完整实现 Bukkit API 的衍生核心上。服务器运行所需 Java 版本由服务端核心决定。
 
@@ -8,9 +8,9 @@
 
 仓库已提供可直接安装的 JAR：
 
-最新通用版：[`../public/new/szydmc-chat-bridge-1.1.4.jar`](../public/new/szydmc-chat-bridge-1.1.4.jar)
+最新通用版：[`../public/new/szydmc-chat-bridge-1.1.6.jar`](../public/new/szydmc-chat-bridge-1.1.6.jar)
 
-历史构建位于 [`../public/old/`](../public/old/)；旧版使用 Paper 1.21.11 API，只用于回退。
+历史构建位于 [`../public/old/`](../public/old/)，只用于回退。
 
 ## 安装
 
@@ -28,4 +28,4 @@
 mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-settings.xml -f minecraft-plugin/pom.xml clean package
 ```
 
-编译结果：`minecraft-plugin/target/szydmc-chat-bridge-1.1.4.jar`。
+编译结果：`minecraft-plugin/target/szydmc-chat-bridge-1.1.6.jar`。
