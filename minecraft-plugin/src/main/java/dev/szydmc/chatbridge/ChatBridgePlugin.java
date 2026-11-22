@@ -99,7 +99,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         endpoint = null;
         key = null;
         String parsedKey = getConfig().getString("key", "").trim();
-        String url = getConfig().getString("bridge-url", "");
+        String url = normalizedBridgeUrl(getConfig().getString("bridge-url", ""));
         URI parsedEndpoint;
         try {
             parsedEndpoint = URI.create(url);
@@ -160,6 +160,15 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         if (joined) players.add(subject);
         players.sort(String.CASE_INSENSITIVE_ORDER);
         return Collections.unmodifiableList(new ArrayList<String>(players));
+    }
+
+    private String normalizedBridgeUrl(String value) {
+        String url = value == null ? "" : value.trim();
+        // 从 Markdown 或聊天消息复制地址时，常把包裹 URL 的反引号一起带进来；反引号不是合法 URI 字符。
+        if (url.length() > 1 && url.charAt(0) == '`' && url.charAt(url.length() - 1) == '`') {
+            url = url.substring(1, url.length() - 1).trim();
+        }
+        return url;
     }
 
     private void queue(String kind, String player, String message, List<String> players) {
@@ -384,7 +393,7 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
             connection.setFixedLengthStreamingMode(payload.length);
             try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
             int status = connection.getResponseCode();
-            if (status != HttpURLConnection.HTTP_OK) throw new IllegalStateException("平台 HTTP " + status);
+            if (status != HttpURLConnection.HTTP_OK) throw new IllegalStateException("平台 HTTP " + status + errorDetail(connection));
             if (!readBody) return "";
             StringBuilder body = new StringBuilder();
             try (InputStream input = connection.getInputStream();
@@ -402,6 +411,26 @@ public final class ChatBridgePlugin extends JavaPlugin implements Listener {
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    private String errorDetail(HttpURLConnection connection) {
+        InputStream stream = connection.getErrorStream();
+        if (stream == null) return "";
+        String text;
+        try (InputStream input = stream) {
+            byte[] buffer = new byte[512];
+            int read = input.read(buffer);
+            if (read <= 0) return "";
+            text = new String(buffer, 0, read, StandardCharsets.UTF_8).trim();
+        } catch (Exception ignored) { return ""; }
+        try {
+            JsonObject value = JsonParser.parseString(text).getAsJsonObject();
+            if (value.has("error")) text = value.get("error").getAsString();
+        } catch (RuntimeException ignored) { }
+        text = text.replaceAll("[\\r\\n\\t]", " ").trim();
+        if (text.isEmpty()) return "";
+        if (text.length() > 160) text = text.substring(0, 160) + "…";
+        return "：" + text;
     }
 
     private String render(JsonArray components) {

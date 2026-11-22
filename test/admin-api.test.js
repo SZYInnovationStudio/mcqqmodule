@@ -109,6 +109,26 @@ test('8.7.1 后台管理、插件版本、模板、服务器日志、RCON 终端
     });
     assert.equal(await requestStatus('/api/auth-state', `localhost:${port}`), 200);
     assert.equal(await requestStatus('/api/auth-state', 'evil.example'), 400);
+    const requestPlugin = (host, key) => new Promise((resolve, reject) => {
+      const payload = JSON.stringify({ ack: 0, sent: [] });
+      const request = http.request({
+        hostname: '127.0.0.1', port, path: '/api/plugin/exchange', method: 'POST',
+        headers: {
+          Host: host,
+          Authorization: 'Bearer ' + key,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload)
+        }
+      }, response => {
+        response.resume();
+        response.on('end', () => resolve(response.statusCode));
+      });
+      request.on('error', reject);
+      request.end(payload);
+    });
+    // 公网 HTTPS 反代下 Host 是域名：插件端点放行 Host，但仍必须通过插件 Key 鉴权
+    assert.equal(await requestPlugin('mcbot.example', 'B'.repeat(32)), 401);
+    assert.equal(await requestPlugin('mcbot.example', storage.config.pluginKey), 200);
     assert.equal((await call('login', 'POST', { username: 'admin123', password: 'wrong' }, undefined, `http://localhost:${port}`)).status, 401);
     assert.equal((await fetch(origin + '/modules')).status, 200);
     assert.equal((await call('modules')).status, 401);

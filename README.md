@@ -1,6 +1,6 @@
 # MC × QQ 管理平台
 
-基于 QQ 官方 Bot、Minecraft RCON 和独立 Bukkit 插件的管理平台。当前服务端版本为 **8.10.1**，聊天插件版本为 **1.1.6**。
+基于 QQ 官方 Bot、Minecraft RCON 和独立 Bukkit 插件的管理平台。当前服务端版本为 **8.10.2**，聊天插件版本为 **1.1.7**。
 
 插件只调用 Bukkit 公共 API，适用于 CraftBukkit、Spigot、Paper、Purpur、Leaves，以及其他完整实现 Bukkit API 的衍生服务端。新版以 Spigot 1.13.2 API 编译，`api-version` 为 `1.13`，字节码目标为 Java 8，可覆盖 Minecraft 1.13 至 1.21.11 的 Bukkit 系服务端；实际 Java 版本仍以所用服务端的要求为准。Fabric、Forge、NeoForge 本身不实现 Bukkit API，不在兼容范围内。
 
@@ -59,7 +59,8 @@
 
 | 分类 | 插件版本 | 兼容说明 | 下载 |
 | --- | --- | --- | --- |
-| 新版 | 1.1.6 | Bukkit 通用版；CraftBukkit、Spigot、Paper、Purpur、Leaves 等 | [`public/new/szydmc-chat-bridge-1.1.6.jar`](public/new/szydmc-chat-bridge-1.1.6.jar) |
+| 新版 | 1.1.7 | Bukkit 通用版；CraftBukkit、Spigot、Paper、Purpur、Leaves 等 | [`public/new/szydmc-chat-bridge-1.1.7.jar`](public/new/szydmc-chat-bridge-1.1.7.jar) |
+| 历史版 | 1.1.6 | Bukkit 通用版 | [`public/old/szydmc-chat-bridge-1.1.6.jar`](public/old/szydmc-chat-bridge-1.1.6.jar) |
 | 历史版 | 1.1.5 | Bukkit 通用版 | [`public/old/szydmc-chat-bridge-1.1.5.jar`](public/old/szydmc-chat-bridge-1.1.5.jar) |
 | 历史版 | 1.1.3 | 原 Paper 1.21.11 专用构建 | [`public/old/szydmc-chat-bridge-1.1.3.jar`](public/old/szydmc-chat-bridge-1.1.3.jar) |
 | 历史版 | 1.0.0 | Git 历史中的最早 Paper 1.21.11 构建 | [`public/old/szydmc-chat-bridge-1.0.0.jar`](public/old/szydmc-chat-bridge-1.0.0.jar) |
@@ -87,7 +88,7 @@ Linux 长期运行和反向代理配置见 [DEPLOY.md](DEPLOY.md)。运行产生
 ## 安装 Minecraft 插件
 
 1. 关闭 Minecraft 服务器。
-2. 下载 [`public/new/szydmc-chat-bridge-1.1.6.jar`](public/new/szydmc-chat-bridge-1.1.6.jar)，放入服务端 `plugins/`。
+2. 下载 [`public/new/szydmc-chat-bridge-1.1.7.jar`](public/new/szydmc-chat-bridge-1.1.7.jar)，放入服务端 `plugins/`。
 3. 启动一次服务器，让插件生成 `plugins/SZYDMCChatBridge/config.yml`，然后关闭服务器。
 4. 编辑配置：
 
@@ -98,7 +99,7 @@ Linux 长期运行和反向代理配置见 [DEPLOY.md](DEPLOY.md)。运行产生
    server-log-path: '../../logs/latest.log'
    ```
 
-5. `key` 必须与后台保存的插件 Key 完全一致。平台与 Minecraft 不在同一台机器时，将 `bridge-url` 改为经过 HTTPS 反向代理或安全隧道公开的地址。
+5. `key` 必须与后台保存的插件 Key 完全一致。平台与 Minecraft 不在同一台机器时，将 `bridge-url` 改为只反代 `/api/plugin/exchange` 的 HTTPS 地址或安全隧道地址；该端点按插件 Key 鉴权，不要求改写 Host，管理页面仍只允许本机访问。
 6. 重新启动 Minecraft，在后台点击“测试插件连接”；连接成功后再开启 QQ → MC、MC → QQ、日志同步和生命周期通知。
 7. 如果 AQQBot 自己也开启了聊天转发，请关闭其聊天转发，避免消息重复；保留白名单和绑定功能。
 
@@ -112,7 +113,7 @@ Linux 长期运行和反向代理配置见 [DEPLOY.md](DEPLOY.md)。运行产生
 mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-settings.xml -f minecraft-plugin/pom.xml clean package
 ```
 
-构建结果位于 `minecraft-plugin/target/szydmc-chat-bridge-1.1.6.jar`。发布时把最新版本放入 `public/new/`，被替代且确有构建来源的旧版本移入 `public/old/`。
+构建结果位于 `minecraft-plugin/target/szydmc-chat-bridge-1.1.7.jar`。发布时把最新版本放入 `public/new/`，被替代且确有构建来源的旧版本移入 `public/old/`。
 
 ## 结束语
 

@@ -15,3 +15,10 @@ test('插件仅使用 Bukkit 公共聊天与消息接口', () => {
   assert.match(source, /player\.sendMessage\(text\)/);
   assert.doesNotMatch(source, /io\.papermc|net\.kyori|AsyncChatEvent/);
 });
+
+test('插件容忍 bridge-url 外层反引号，并在非 200 时回报后台错误原因', () => {
+  assert.match(source, /normalizedBridgeUrl/);
+  assert.match(source, /charAt\(0\) == '`' && url\.charAt\(url\.length\(\) - 1\) == '`'/);
+  assert.match(source, /errorDetail\(connection\)/);
+  assert.match(source, /getErrorStream\(\)/);
+});

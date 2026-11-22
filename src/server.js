@@ -210,9 +210,12 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   try {
-    if (!hostAllowed(req.headers.host)) return json(res, 400, { error: '主机名不允许' });
     const requestUrl = new URL(req.url, ORIGIN);
     const path = requestUrl.pathname;
+    // 插件端点常暴露在公网 HTTPS 反代后面，Host 是域名而不是本机地址；
+    // 该端点只靠 Bearer 插件 Key 鉴权，不依赖 Host 阻挡 DNS rebinding。
+    const pluginExchange = path === '/api/plugin/exchange' && req.method === 'POST';
+    if (!pluginExchange && !hostAllowed(req.headers.host)) return json(res, 400, { error: '主机名不允许' });
     if (req.method === 'GET' && assets[path]) {
       const [file, type] = assets[path];
       try {
@@ -242,7 +245,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (!path.startsWith('/api/')) return json(res, 404, { error: '未找到' });
-    if (path === '/api/plugin/exchange' && req.method === 'POST') {
+    if (pluginExchange) {
       if (!pluginAuthorized(req)) return json(res, 401, { error: '插件 Key 无效' });
       bridge.pluginConnection.observe();
       try {

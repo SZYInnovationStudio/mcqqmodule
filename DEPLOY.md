@@ -66,6 +66,20 @@ ssh -N -L 127.0.0.1:2556:127.0.0.1:2556 your_login_user@your_server_address
 
 然后在你电脑的浏览器打开 `http://127.0.0.1:2556/`。网页和 QQ Bot 程序都运行在**远程服务器**；你的电脑只负责安全查看后台。关闭 SSH 隧道不会停止服务器上的服务。如果本机 2556 已被旧版测试程序占用，请先停止那个本机程序，否则隧道无法占用此端口。
 
+### 让远程 MC 插件连入
+
+管理页面仍然只走 SSH 隧道。若 MC 在另一台机器或容器里，只需要把插件端点通过 HTTPS 反向代理暴露出去，不要暴露整个后台：
+
+```nginx
+location = /api/plugin/exchange {
+    proxy_pass http://127.0.0.1:2556;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+`/api/plugin/exchange` 按插件 Key 鉴权，不套用管理页面的本机 Host 白名单，因此这里保留真实域名 Host 即可。插件 `bridge-url` 填 `https://你的域名/api/plugin/exchange`，证书必须有效；管理页面和其他 API 仍只接受本机 Host，不要为它们添加公网 location。
+
 ## 4. 首次设置与日常使用
 
 1. 完整包已带原管理员账户，直接用原用户名和密码登录；不会再出现首次设置页面。
@@ -75,7 +89,7 @@ ssh -N -L 127.0.0.1:2556:127.0.0.1:2556 your_login_user@your_server_address
 5. 管理员可在「玩家日志」查看分类记录，在「RCON 终端」手动发令并查看管理员执行日志。
 6. 聊天互通只通过独立插件连接。在修改信息页确认插件 Key 已配置并测试插件连接，再分别开启 QQ → MC 与 MC → QQ；RCON 继续用于 AQQBot 白名单和管理员终端。
 
-双向聊天只支持独立插件。把包内 `minecraft-plugin/target/szydmc-chat-bridge-1.1.6.jar` 放进 MC 服务端的 `plugins/`，把 `minecraft-plugin/server-config/config.yml` 放进 MC 服务端的 `plugins/SZYDMCChatBridge/`，然后重启 MC。第二个文件已预填插件 Key，不必再手抄；不要把它公开。插件默认连接同一台机器上的 `127.0.0.1:2556`；若 MC 和后台在不同机器或不同容器内，必须先设置可达的安全隧道或 HTTPS 反向代理，并修改插件配置的 `bridge-url`。网页里点“测试插件连接”确认连通。插件不会替换当前 AQQBot 白名单，也不会同步其旧绑定文件。
+双向聊天只支持独立插件。把包内 `minecraft-plugin/target/szydmc-chat-bridge-1.1.7.jar` 放进 MC 服务端的 `plugins/`，把 `minecraft-plugin/server-config/config.yml` 放进 MC 服务端的 `plugins/SZYDMCChatBridge/`，然后重启 MC。第二个文件已预填插件 Key，不必再手抄；不要把它公开。插件默认连接同一台机器上的 `127.0.0.1:2556`；若 MC 和后台在不同机器或不同容器内，先按上一节只反代 `/api/plugin/exchange`，再修改插件配置的 `bridge-url`。网页里点“测试插件连接”确认连通。插件不会替换当前 AQQBot 白名单，也不会同步其旧绑定文件。
 
 本版插件会把玩家进服、退服推送到允许的 QQ 群，且只发单行消息，例如 `[服务器] Alice 离开了服务器`，不附加在线名单。在线人数与名单改由 QQ 的 `/list` 回复显示，例如 `在线玩家（1）：Alice`，零人时为 `在线玩家（0）：无`。进出服播报跟随网页的 **MC → QQ** 开关；不包含 QQ 入群／退群播报。8.7.0 必须更新后台程序；整库页依赖桥接插件只读 AQQBot data.yml 并同步快照。
 

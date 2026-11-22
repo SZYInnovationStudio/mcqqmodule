@@ -1,4 +1,4 @@
-# SZYDMCChatBridge 1.1.6
+# SZYDMCChatBridge 1.1.7
 
 当前源码仅使用 Bukkit 公共 API，以 Spigot 1.13.2 API 和 Java 8 字节码目标编译。通用包可安装在 Minecraft 1.13 至 1.21.11 的 CraftBukkit、Spigot、Paper、Purpur、Leaves，以及其他完整实现 Bukkit API 的衍生核心上。服务器运行所需 Java 版本由服务端核心决定。
 
@@ -8,7 +8,7 @@
 
 仓库已提供可直接安装的 JAR：
 
-最新通用版：[`../public/new/szydmc-chat-bridge-1.1.6.jar`](../public/new/szydmc-chat-bridge-1.1.6.jar)
+最新通用版：[`../public/new/szydmc-chat-bridge-1.1.7.jar`](../public/new/szydmc-chat-bridge-1.1.7.jar)
 
 历史构建位于 [`../public/old/`](../public/old/)，只用于回退。
 
@@ -20,7 +20,7 @@
 4. 使用 AQQBot 整库功能时确认 `aqqbot-data-path` 指向 `plugins/AQQBot/data.yml`；日志功能默认读取 `logs/latest.log`。
 5. 重启服务器，在管理后台测试插件连接并开启需要的功能。
 
-同机部署默认地址为 `http://127.0.0.1:2556/api/plugin/exchange`。分开部署时应使用 HTTPS 反向代理或安全隧道，不要公开后台管理端口或插件 Key。
+同机部署默认地址为 `http://127.0.0.1:2556/api/plugin/exchange`。分开部署时使用只反代该路径的 HTTPS 地址或安全隧道；插件端点按 Key 鉴权，不要求改写 Host，不要公开后台管理端口或插件 Key。地址外层误带的反引号会被自动去掉。
 
 ## 构建
 
@@ -28,4 +28,4 @@
 mvn -U -gs minecraft-plugin/maven-settings.xml -s minecraft-plugin/maven-settings.xml -f minecraft-plugin/pom.xml clean package
 ```
 
-编译结果：`minecraft-plugin/target/szydmc-chat-bridge-1.1.6.jar`。
+编译结果：`minecraft-plugin/target/szydmc-chat-bridge-1.1.7.jar`。
