@@ -24,15 +24,60 @@
     </header>
     <nav id="mobile-nav" class="mobile-nav" aria-label="移动导航"></nav>
     <main id="workspace" class="workspace" tabindex="-1">
-<div class="page-intro module-intro"><div><h1>模块中心</h1><p id="host-badge">通用模块平台</p></div><a class="secondary link-button" href="/MODULE-SPEC.md" target="_blank" rel="noopener">开发规范</a></div>
-<section class="module-overview" aria-label="模块概况"><div><small>已安装</small><strong id="module-count">—</strong></div><div><small>运行中</small><strong id="enabled-count">—</strong></div><div><small>宿主版本</small><strong id="host-version">—</strong></div></section>
-<div class="module-layout">
-  <section class="panel module-catalog"><div class="panel-head"><div><h2>已安装模块</h2></div><button id="refresh-modules" class="ghost" type="button">刷新</button></div><div id="module-list" class="module-list empty">正在读取…</div><div id="module-errors" class="module-errors" hidden></div></section>
-  <aside class="module-side">
-    <section class="panel module-installer"><div class="panel-head"><div><h2>安装或升级</h2></div></div><p>新模块推荐使用 <code>.mcqqmodule</code>。原有 <code>.szydmodule</code> 仍可直接安装和升级。</p><label class="module-file"><span>选择模块包</span><input id="module-file" type="file" accept=".mcqqmodule,.szydmodule,.json,application/json"></label><pre id="module-preview" class="module-preview result">尚未选择文件。</pre><button id="install-module" class="primary install-button" type="button" disabled>安装 / 升级</button><p id="module-message" class="message" role="status"></p></section>
-    <section class="panel permission-panel"><h2>模块权限</h2><p>服务端模块可访问 RCON、连接配置、QQ 登记、AQQBot、日志和群通知。</p><div class="module-warning"><strong>管理员信任边界</strong><span>服务端模块拥有完整运行权限。只安装来源明确、已经审核的模块包。</span></div></section>
-  </aside>
-</div>
+      <header class="page-intro module-intro">
+        <div>
+          <h1>模块中心</h1>
+          <p id="host-badge">宿主版本 <span id="host-version">—</span></p>
+        </div>
+        <a class="primary link-button module-install-jump" href="#module-installer">安装模块</a>
+      </header>
+
+      <div class="module-layout">
+        <section class="panel module-catalog" aria-labelledby="module-catalog-title">
+          <header class="module-catalog-head">
+            <div>
+              <h2 id="module-catalog-title">已安装模块</h2>
+              <p class="module-counts"><strong id="module-count">—</strong> 个模块<span aria-hidden="true"> · </span><strong id="enabled-count">—</strong> 个已启用</p>
+            </div>
+            <button id="refresh-modules" class="ghost" type="button" aria-label="刷新模块列表">刷新</button>
+          </header>
+          <div id="module-list" class="module-list" aria-busy="true">
+            <p class="module-empty">正在读取模块…</p>
+          </div>
+          <p id="module-catalog-message" class="message" role="status"></p>
+          <div id="module-errors" class="module-errors" hidden></div>
+        </section>
+
+        <section id="module-installer" class="panel module-installer" aria-labelledby="module-installer-title" tabindex="-1">
+          <header class="module-installer-head">
+            <h2 id="module-installer-title">安装或升级</h2>
+            <a class="text-link" href="/MODULE-SPEC.md" target="_blank" rel="noopener">开发规范<span aria-hidden="true"> ↗</span></a>
+          </header>
+          <p id="module-file-formats" class="module-file-formats"><code>.mcqqmodule</code> 或 <code>.szydmodule</code>，<span>最大 48 MiB</span></p>
+
+          <div class="module-file-picker">
+            <input class="module-file-input" id="module-file" type="file" accept=".mcqqmodule,.szydmodule,.json,application/json" aria-label="选择模块包" aria-describedby="module-file-formats">
+            <label for="module-file" class="module-file-label">
+              <span class="secondary module-file-button">选择文件</span>
+              <span id="module-file-name" class="module-file-name" aria-live="polite">尚未选择文件</span>
+            </label>
+          </div>
+
+          <section id="module-preview-panel" class="module-preview-panel" aria-labelledby="module-preview-title" hidden>
+            <h3 id="module-preview-title">安装预览</h3>
+            <dl id="module-preview" class="module-facts"></dl>
+          </section>
+          <div class="module-installer-actions">
+            <button id="install-module" class="primary" type="button" disabled>安装或升级</button>
+            <p id="module-message" class="message" role="status"></p>
+          </div>
+
+          <details class="module-trust">
+            <summary>服务端模块拥有完整宿主权限</summary>
+            <p>模块可访问 RCON、连接配置、QQ 登记和日志等数据。请安装来源明确、经过审核的包。</p>
+          </details>
+        </section>
+      </div>
     </main>
   </div>
   <dialog id="nav-dialog" class="nav-dialog" aria-labelledby="nav-dialog-title">

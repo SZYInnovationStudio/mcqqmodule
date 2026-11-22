@@ -1,116 +1,200 @@
 import { $, api, message } from './common.js';
 
+const formats = new Map([
+  ['bridge-module-v2', '通用 v2'],
+  ['szydmc-module-v1', '旧版 v1']
+]);
+const dateFormat = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short', hourCycle: 'h23' });
+const fileInput = $('module-file');
+const installButton = $('install-module');
+const previewPanel = $('module-preview-panel');
 let selectedBundle = null;
 let selectionVersion = 0;
 
-function summary(bundle) {
-  const formats = new Set(['bridge-module-v2', 'szydmc-module-v1']);
+function textElement(tag, value, className) {
+  const element = document.createElement(tag);
+  element.textContent = value;
+  if (className) element.className = className;
+  return element;
+}
+
+function renderFacts(list, entries) {
+  list.replaceChildren(...entries.map(([label, value, wide]) => {
+    const row = document.createElement('div');
+    if (wide) row.className = 'module-fact-wide';
+    row.append(textElement('dt', label), textElement('dd', value));
+    return row;
+  }));
+}
+
+function formatPermissions(permissions = ['*']) {
+  if (!Array.isArray(permissions)) throw new Error('模块权限声明格式无效');
+  return permissions.includes('*') ? '完整宿主权限' : permissions.join('、') + '（仅声明，不隔离权限）';
+}
+
+function bundleFacts(bundle) {
   if (!bundle || !formats.has(bundle.format) || !bundle.manifest || !Array.isArray(bundle.files)) throw new Error('不是受支持的模块包');
-  const { id, name, version, description = '', entry = '', permissions = ['*'] } = bundle.manifest;
+  const { id, name, version, description, entry } = bundle.manifest;
   if (!id || !name || !version) throw new Error('模块清单缺少 ID、名称或版本');
-  return [
-    `名称：${name}`,
-    `模块 ID：${id}`,
-    `版本：${version}`,
-    `格式：${bundle.format === 'bridge-module-v2' ? '通用 v2' : '旧版 v1（兼容）'}`,
-    `文件：${bundle.files.length} 个`,
-    `服务端代码：${entry ? '包含 ' + entry : '无（纯页面）'}`,
-    `权限：${permissions.includes('*') ? '完整宿主权限' : permissions.join('、') + '（声明项，不强制隔离）'}`,
-    description ? `说明：${description}` : ''
-  ].filter(Boolean).join('\n');
+  const facts = [
+    ['模块', name + ' · v' + version, true],
+    ['模块 ID', id],
+    ['包格式', formats.get(bundle.format) + ' · ' + bundle.files.length + ' 个文件'],
+    ['服务端入口', entry || '无（纯页面）'],
+    ['权限声明', formatPermissions(bundle.manifest.permissions)]
+  ];
+  if (description) facts.push(['说明', description, true]);
+  return facts;
+}
+
+function renderModule(item) {
+  const row = document.createElement('article');
+  row.className = 'module-item';
+
+  const content = document.createElement('div');
+  const heading = document.createElement('header');
+  heading.className = 'module-item-title';
+  const status = textElement('span', item.enabled ? '已启用' : '已停用', 'module-state');
+  status.dataset.enabled = item.enabled;
+  heading.append(textElement('h3', item.name), textElement('span', 'v' + item.version, 'module-version'), status);
+  content.append(heading);
+  if (item.description) content.append(textElement('p', item.description, 'module-item-description'));
+
+  const open = textElement('a', '打开模块', 'secondary link-button');
+  open.href = item.pageUrl;
+  open.setAttribute('aria-label', '打开 ' + item.name);
+  const toggle = textElement('button', item.enabled ? '停用' : '启用', 'ghost');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-label', toggle.textContent + ' ' + item.name);
+  toggle.addEventListener('click', async () => {
+    toggle.disabled = true;
+    message('module-catalog-message', '');
+    try {
+      const updated = await api('modules/toggle', { method: 'POST', body: JSON.stringify({ id: item.id, enabled: !item.enabled }) });
+      item.enabled = updated.enabled;
+      status.textContent = item.enabled ? '已启用' : '已停用';
+      status.dataset.enabled = item.enabled;
+      toggle.textContent = item.enabled ? '停用' : '启用';
+      toggle.setAttribute('aria-label', toggle.textContent + ' ' + item.name);
+      $('enabled-count').textContent = $('module-list').querySelectorAll('.module-state[data-enabled="true"]').length;
+    } catch (error) { message('module-catalog-message', error.message, true); }
+    finally { toggle.disabled = false; }
+  });
+  const actions = document.createElement('div');
+  actions.className = 'module-actions';
+  actions.append(open, toggle);
+
+  const details = document.createElement('details');
+  details.className = 'module-details';
+  const facts = document.createElement('dl');
+  facts.className = 'module-facts';
+  const installedAt = new Date(item.installedAt);
+  const properties = [
+    ['模块 ID', item.id],
+    ['包格式', formats.get(item.format) || item.format],
+    ['类型', item.hasServer ? '页面与接口' : '纯页面'],
+    ['权限声明', formatPermissions(item.permissions)],
+    ['安装时间', Number.isNaN(installedAt.getTime()) ? '未知' : dateFormat.format(installedAt)]
+  ];
+  if (item.description) properties.push(['说明', item.description, true]);
+  renderFacts(facts, properties);
+  details.append(textElement('summary', '模块详情'), facts);
+  row.append(content, actions, details);
+  return row;
 }
 
 function renderList(state) {
-  $('module-count').textContent = String(state.modules.length);
-  $('enabled-count').textContent = String(state.modules.filter(item => item.enabled).length);
-  $('host-version').textContent = state.serverVersion;
-  // 标题栏版本号也跟随宿主版本，避免页面写死后与模块中心显示不一致
-  const badge = $('host-badge');
-  if (badge) badge.textContent = `${state.serverVersion} · 通用模块平台`;
-  const root = $('module-list');
-  root.replaceChildren();
-  root.classList.toggle('empty', !state.modules.length);
-  if (!state.modules.length) root.textContent = '还没有安装增量模块。';
-  for (const item of state.modules) {
-    const row = document.createElement('article');
-    row.className = 'module-item';
-    const content = document.createElement('div');
-    const title = document.createElement('strong');
-    const description = document.createElement('p');
-    const meta = document.createElement('small');
-    const format = document.createElement('small');
-    title.textContent = `${item.name} · ${item.version}`;
-    description.textContent = item.description || '没有填写简介';
-    meta.textContent = `${item.id} · ${item.hasServer ? '页面与接口' : '纯页面'} · ${item.installedAt ? new Date(item.installedAt).toLocaleString('zh-CN') : '安装时间未知'} · ${item.enabled ? '已启用' : '已关闭'}`;
-    format.className = 'module-format';
-    format.textContent = `${item.format === 'bridge-module-v2' ? '通用 v2' : '旧版兼容'} · ${item.permissions?.includes('*') ? '完整权限' : '声明接口（无强制隔离）'}`;
-    content.append(title, description, meta, format);
-    const open = document.createElement('a');
-    open.className = 'secondary link-button';
-    open.href = item.pageUrl;
-    open.textContent = '打开';
-    const toggle = document.createElement('button');
-    toggle.type = 'button'; toggle.className = 'secondary'; toggle.textContent = item.enabled ? '关闭' : '启用';
-    toggle.addEventListener('click', async () => {
-      toggle.disabled = true;
-      try { await api('modules/toggle', { method: 'POST', body: JSON.stringify({ id: item.id, enabled: !item.enabled }) }); await refresh(); }
-      catch (error) { message('module-message', error.message, true); toggle.disabled = false; }
-    });
-    const actions = document.createElement('div'); actions.className = 'module-actions'; actions.append(open, toggle);
-    row.append(content, actions);
-    root.append(row);
-  }
+  $('module-count').textContent = state.modules.length;
+  $('enabled-count').textContent = state.modules.filter(item => item.enabled).length;
+  $('host-badge').querySelector('#host-version').textContent = state.serverVersion;
+  $('module-list').replaceChildren(...(state.modules.length
+    ? state.modules.map(renderModule)
+    : [textElement('p', '还没有安装模块，可在安装区选择模块包。', 'module-empty')]));
+
   const errors = $('module-errors');
   errors.hidden = !state.errors.length;
-  errors.textContent = state.errors.length ? '以下模块启动失败：\n' + state.errors.map(item => `${item.id}：${item.error}`).join('\n') : '';
+  errors.replaceChildren();
+  if (state.errors.length) {
+    const list = document.createElement('ul');
+    list.append(...state.errors.map(item => textElement('li', item.id + ' · ' + item.error)));
+    errors.append(textElement('h3', '模块启动失败'), list);
+  }
 }
 
 async function refresh() {
-  try { renderList(await api('modules')); }
-  catch (error) { message('module-message', error.message, true); }
-}
-
-$('module-file').addEventListener('change', async event => {
-  const version = ++selectionVersion;
-  selectedBundle = null;
-  $('install-module').disabled = true;
-  const file = event.currentTarget.files[0];
-  if (!file) { $('module-preview').textContent = '尚未选择文件。'; return; }
-  if (file.size > 48 * 1024 * 1024) { $('module-preview').textContent = '文件超过 48 MiB，无法上传。'; return; }
-  try {
-    const bundle = JSON.parse(await file.text());
-    if (version !== selectionVersion || $('module-file').files[0] !== file) return;
-    $('module-preview').textContent = summary(bundle);
-    selectedBundle = bundle;
-    $('install-module').disabled = false;
-    message('module-message', '清单已读取。点击安装或升级后，服务端会再做完整校验。');
-  } catch (error) {
-    if (version !== selectionVersion) return;
-    $('module-preview').textContent = `读取失败：${error.message}`;
-    message('module-message', '模块包无法读取。', true);
-  }
-});
-
-$('install-module').addEventListener('click', async event => {
-  if (!selectedBundle) return;
-  const button = event.currentTarget;
+  const button = $('refresh-modules');
+  const list = $('module-list');
   button.disabled = true;
-  message('module-message', '正在校验并安装或升级模块…');
-  try {
-    const result = await api('modules/install', { method: 'POST', body: JSON.stringify(selectedBundle) });
-    message('module-message', `已安装或升级 ${result.installed.name} ${result.installed.version}。`);
-    selectedBundle = null;
-    $('module-file').value = '';
-    $('module-preview').textContent = '安装完成。可以从已安装列表打开。';
-    await refresh();
-  } catch (error) {
-    message('module-message', error.message, true);
+  list.setAttribute('aria-busy', 'true');
+  message('module-catalog-message', '');
+  try { renderList(await api('modules')); }
+  catch (error) {
+    if ($('module-count').textContent === '—') list.replaceChildren(textElement('p', '暂时无法读取模块。', 'module-empty'));
+    message('module-catalog-message', error.message, true);
+  } finally {
+    list.setAttribute('aria-busy', 'false');
     button.disabled = false;
   }
+}
+
+function showFileName(file) {
+  const name = $('module-file-name');
+  name.textContent = file?.name || '尚未选择文件';
+  name.title = file?.name || '';
+}
+
+fileInput.addEventListener('change', async () => {
+  const version = ++selectionVersion;
+  selectedBundle = null;
+  installButton.disabled = true;
+  previewPanel.hidden = true;
+  const file = fileInput.files[0];
+  showFileName(file);
+  message('module-message', '');
+  if (!file) return;
+  if (file.size > 48 * 1024 * 1024) {
+    message('module-message', '文件超过 48 MiB，无法上传。', true);
+    return;
+  }
+  message('module-message', '正在读取模块清单…');
+  try {
+    const bundle = JSON.parse(await file.text());
+    if (version !== selectionVersion) return;
+    renderFacts($('module-preview'), bundleFacts(bundle));
+    previewPanel.hidden = false;
+    selectedBundle = bundle;
+    installButton.disabled = false;
+    message('module-message', '');
+  } catch (error) {
+    if (version === selectionVersion) message('module-message', '读取失败：' + error.message, true);
+  }
 });
 
-$('refresh-modules').addEventListener('click', () => { void refresh(); });
-$('logout').addEventListener('click', async () => { await api('logout', { method: 'POST' }); location.href = '/'; });
+installButton.addEventListener('click', async () => {
+  if (!selectedBundle) return;
+  installButton.disabled = true;
+  fileInput.disabled = true;
+  message('module-message', '正在验证并安装模块…');
+  try {
+    const { installed } = await api('modules/install', { method: 'POST', body: JSON.stringify(selectedBundle) });
+    selectedBundle = null;
+    fileInput.value = '';
+    showFileName();
+    previewPanel.hidden = true;
+    message('module-message', '已安装 ' + installed.name + ' v' + installed.version + '。');
+    await refresh();
+  } catch (error) { message('module-message', error.message, true); }
+  finally {
+    fileInput.disabled = false;
+    installButton.disabled = !selectedBundle;
+  }
+});
+
+$('refresh-modules').addEventListener('click', refresh);
+$('logout').addEventListener('click', async () => {
+  try { await api('logout', { method: 'POST' }); location.href = '/'; }
+  catch (error) { message('module-catalog-message', error.message, true); }
+});
 api('auth-state').then(async auth => {
   if (!auth.authenticated) { location.replace('/'); return; }
   $('current-user').textContent = auth.username;
